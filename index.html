@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Storm Dashboard — Jefferson County & St. Louis</title>
+  <meta name="description" content="Live severe weather alerts, storm damage reports, and AI-powered damage summaries for Jefferson County and St. Louis, Missouri.">
+
+  <!-- Leaflet CSS -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+
+  <!-- App CSS -->
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+  <!-- Top navigation bar -->
+  <nav class="topbar">
+    <div class="topbar-brand">
+      <div class="icon">⛈</div>
+      Storm Dashboard
+      <span style="font-size:12px;font-weight:400;opacity:.6;margin-left:4px">Jefferson County & St. Louis</span>
+    </div>
+    <div class="topbar-right">
+      <div class="status-badge">
+        <div class="pulse-dot" id="pulse-dot"></div>
+        <span id="status-label">Connecting...</span>
+      </div>
+      <span id="last-updated" style="font-size:11px;color:rgba(255,255,255,.4)"></span>
+    </div>
+  </nav>
+
+  <!-- Main app layout -->
+  <div class="app-layout">
+
+    <!-- Metrics bar -->
+    <div class="metrics-bar">
+      <div class="metric-cell">
+        <div class="metric-label">Active alerts</div>
+        <div class="metric-value red" id="m-warnings">—</div>
+        <div class="metric-sub">Watch zones</div>
+      </div>
+      <div class="metric-cell">
+        <div class="metric-label">Storm reports</div>
+        <div class="metric-value amber" id="m-reports">—</div>
+        <div class="metric-sub">Apr 17–18 event</div>
+      </div>
+      <div class="metric-cell">
+        <div class="metric-label">Max hail size</div>
+        <div class="metric-value blue" id="m-hail">—</div>
+        <div class="metric-sub">Reported diameter</div>
+      </div>
+      <div class="metric-cell">
+        <div class="metric-label">Peak wind gust</div>
+        <div class="metric-value" id="m-wind">—</div>
+        <div class="metric-sub">Jefferson County</div>
+      </div>
+      <div class="metric-cell">
+        <div class="metric-label">Power outages</div>
+        <div class="metric-value" id="m-outages">—</div>
+        <div class="metric-sub">MO / IL region</div>
+      </div>
+    </div>
+
+    <!-- Sidebar -->
+    <aside class="sidebar">
+      <div class="sidebar-tabs">
+        <div class="sidebar-tab active" data-tab="alerts" onclick="switchTab('alerts')">NWS Alerts</div>
+        <div class="sidebar-tab" data-tab="reports" onclick="switchTab('reports')">Storm Reports</div>
+        <div class="sidebar-tab" data-tab="forecast" onclick="switchTab('forecast')">Forecast</div>
+      </div>
+
+      <div class="sidebar-content">
+
+        <!-- Alerts panel -->
+        <div class="tab-panel active" id="panel-alerts">
+          <div style="padding:8px 16px;border-bottom:1px solid #f1f5f9;display:flex;justify-content:space-between;align-items:center">
+            <div class="zone-search">
+              <input id="zone-input" placeholder="Add zone (e.g. MOC510)" title="NWS zone code">
+              <button class="toolbar-btn" onclick="searchZone()" style="border-radius:6px;border:1px solid #e2e8f0">Add</button>
+            </div>
+            <button id="refresh-btn" class="toolbar-btn" onclick="refreshAlerts()" style="border-radius:6px;border:1px solid #e2e8f0">Refresh</button>
+          </div>
+          <div id="alerts-list">
+            <div class="skeleton" style="margin:16px;"></div>
+            <div class="skeleton" style="margin:16px;width:70%"></div>
+            <div class="skeleton" style="margin:16px;"></div>
+          </div>
+        </div>
+
+        <!-- Storm reports panel -->
+        <div class="tab-panel" id="panel-reports">
+          <div style="padding:8px 16px;font-size:11px;color:#94a3b8;border-bottom:1px solid #f1f5f9">
+            Click a report to zoom map · Click marker for AI summary
+          </div>
+          <div id="reports-list"></div>
+        </div>
+
+        <!-- Forecast panel -->
+        <div class="tab-panel" id="panel-forecast">
+          <div style="padding:16px">
+            <div style="font-size:13px;font-weight:600;color:#334155;margin-bottom:8px">Jefferson County Forecast</div>
+            <div id="forecast-content">
+              <div style="font-size:13px;color:#64748b;line-height:1.6">
+                <div style="margin-bottom:12px">
+                  <strong style="color:#1e293b">Saturday, Apr 18</strong><br>
+                  Mostly cloudy, breezy. High 62°F. NW wind 15–25 mph. Lingering AM showers possible.
+                </div>
+                <div style="margin-bottom:12px">
+                  <strong style="color:#1e293b">Sunday, Apr 19</strong><br>
+                  Partly sunny. High 67°F. Winds diminishing. Good conditions for damage assessment.
+                </div>
+                <div>
+                  <strong style="color:#1e293b">Monday, Apr 20</strong><br>
+                  Mostly sunny. High 72°F. Calm winds. Ideal for roof and property inspection.
+                </div>
+                <div style="margin-top:16px;padding:10px;background:#eff6ff;border-radius:8px;font-size:12px;color:#1e40af">
+                  <strong>Post-storm tip:</strong> Document all damage before cleanup begins. Take timestamped photos from multiple angles for insurance documentation.
+                </div>
+              </div>
+            </div>
+          </div>
+          <div style="padding:0 16px 16px">
+            <a href="https://forecast.weather.gov/MapClick.php?CityName=Hillsboro&state=MO&site=LSX"
+               target="_blank"
+               style="font-size:12px;color:#2563eb;text-decoration:none">
+              Full NWS forecast for Jefferson County →
+            </a>
+          </div>
+        </div>
+
+      </div>
+    </aside>
+
+    <!-- Map + AI panel -->
+    <div class="map-area">
+
+      <!-- Map toolbar -->
+      <div class="map-toolbar">
+        <span class="toolbar-label">Layers:</span>
+        <div class="toolbar-group">
+          <button class="toolbar-btn active" data-layer="damage" onclick="setMapLayer('damage',this)">Damage sites</button>
+          <button class="toolbar-btn" data-layer="hail" onclick="setMapLayer('hail',this)">Hail swath</button>
+          <button class="toolbar-btn" data-layer="warnings" onclick="setMapLayer('warnings',this)">Watch zones</button>
+        </div>
+        <div class="toolbar-sep" style="height:24px;background:#e2e8f0;width:1px;margin:0 4px"></div>
+        <span class="toolbar-label">AI Analysis:</span>
+        <button class="toolbar-btn" onclick="generateAreaSummary()"
+          style="background:#2563eb;color:#fff;border-radius:6px;border:none">
+          ✦ Area briefing
+        </button>
+        <div style="margin-left:auto;font-size:11px;color:#94a3b8">
+          Click any map marker for AI damage summary
+        </div>
+      </div>
+
+      <!-- Leaflet map -->
+      <div id="map"></div>
+
+      <!-- AI summary panel -->
+      <div class="ai-panel">
+        <div class="ai-header">
+          <div class="ai-title">
+            <span>✦ Claude AI Analysis</span>
+            <span class="ai-badge">Powered by Claude</span>
+            <span id="ai-report-name" style="font-size:12px;font-weight:400;color:#64748b"></span>
+          </div>
+          <div class="ai-actions">
+            <button class="ai-btn" onclick="copyAISummary()">Copy</button>
+            <button class="ai-btn primary" onclick="generateAreaSummary()">Area briefing</button>
+          </div>
+        </div>
+        <div class="ai-body placeholder" id="ai-body">
+          Click any storm marker on the map or use "Area briefing" to generate an AI-powered damage summary and insurance guidance for this event.
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- Scripts -->
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="config.js" onerror="console.warn('config.js not found — copy config.example.js to config.js and add your API key')"></script>
+  <script src="js/alerts.js"></script>
+  <script src="js/map.js"></script>
+  <script src="js/claude.js"></script>
+  <script src="js/app.js"></script>
+
+  <script>
+    function copyAISummary() {
+      const text = document.getElementById('ai-body').innerText;
+      navigator.clipboard.writeText(text).then(() => {
+        const btn = event.target;
+        btn.textContent = 'Copied!';
+        setTimeout(() => btn.textContent = 'Copy', 1500);
+      });
+    }
+  </script>
+
+</body>
+</html>
