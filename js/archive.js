@@ -1,3 +1,4 @@
+;(function() {
 // archive.js — Storm event archival and auto-clear logic
 //
 // How it works:
@@ -280,3 +281,4 @@ window.ArchiveModule = {
   renderArchiveTab,
   seedAprilEvent,
 };
+})();

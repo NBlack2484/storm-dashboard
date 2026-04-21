@@ -1,3 +1,4 @@
+;(function() {
 // lightning.js — Live lightning strike overlay via Blitzortung.org
 //
 // Connects to Blitzortung's public WebSocket feed (no key required).
@@ -252,3 +253,4 @@ window.LightningModule = {
   toggleLightning,
   isLightningActive,
 };
+})();

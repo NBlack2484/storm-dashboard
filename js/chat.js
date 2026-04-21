@@ -1,3 +1,4 @@
+;(function() {
 // chat.js — Conversational chat interface powered by Claude AI
 
 const CHAT_MODEL    = 'claude-sonnet-4-20250514';
@@ -16,12 +17,14 @@ function buildSystemPrompt(ctx) {
   const alertSummary = (ctx.alerts || []).slice(0, 6).map(a => {
     const p = a.properties;
     return `- ${p.event} (${p.severity}): ${p.areaDesc}`;
-  }).join('\n') || 'No active NWS alerts.';
+  }).join('
+') || 'No active NWS alerts.';
 
   const reportSummary = [...(ctx.stormReports || []), ...(ctx.spcReports || [])]
     .slice(0, 20)
     .map(r => `- ${(r.type || r.label || '').toUpperCase()} | ${r.location} | ${r.magnitude} | ${r.detail}`)
-    .join('\n') || 'No storm reports loaded.';
+    .join('
+') || 'No storm reports loaded.';
 
   const m = ctx.metrics || {};
 
@@ -97,11 +100,32 @@ function simulateChatResponse(msg) {
   return new Promise(resolve => {
     setTimeout(() => {
       if (lower.includes('structural') || lower.includes('worst') || lower.includes('most damage')) {
-        resolve(`The highest concentration of structural damage is in three areas:\n\n• **Arnold — Jeffco Blvd**: Roof collapses along Jeffco Blvd between Hwy 141 and Plaza Dr. Road closed.\n• **Imperial — Old Lemay Ferry Rd**: Several home structural collapses — worst residential impact in the county.\n• **Hillsboro — Clayton Husky Rd**: 8–9 structures damaged across the Klondike/Clayton Husky Rd corridor.\n\nArnold and Imperial took the worst of the 80 mph straight-line winds.`);
+        resolve(`The highest concentration of structural damage is in three areas:
+
+• **Arnold — Jeffco Blvd**: Roof collapses along Jeffco Blvd between Hwy 141 and Plaza Dr. Road closed.
+• **Imperial — Old Lemay Ferry Rd**: Several home structural collapses — worst residential impact in the county.
+• **Hillsboro — Clayton Husky Rd**: 8–9 structures damaged across the Klondike/Clayton Husky Rd corridor.
+
+Arnold and Imperial took the worst of the 80 mph straight-line winds.`);
       } else if (lower.includes('insurance') || lower.includes('claim')) {
-        resolve(`For Jefferson County claims from the April 17–18 event:\n\n• **File promptly** — claim volumes are high; early filing means faster adjuster scheduling\n• **Document before cleanup** — timestamped photos/video of all damage\n• **Structural damage**: Covered under dwelling coverage; get a structural engineer inspection before re-entering\n• **Hail (1.75")**: Qualifies for roof replacement under most RCV policies\n• **Vehicles**: File under comprehensive auto — weather event, not collision\n• Jefferson County Emergency Management: 636-797-6450`);
+        resolve(`For Jefferson County claims from the April 17–18 event:
+
+• **File promptly** — claim volumes are high; early filing means faster adjuster scheduling
+• **Document before cleanup** — timestamped photos/video of all damage
+• **Structural damage**: Covered under dwelling coverage; get a structural engineer inspection before re-entering
+• **Hail (1.75")**: Qualifies for roof replacement under most RCV policies
+• **Vehicles**: File under comprehensive auto — weather event, not collision
+• Jefferson County Emergency Management: 636-797-6450`);
       } else if (lower.includes('compare') || lower.includes('arnold') || lower.includes('hillsboro')) {
-        resolve(`Comparing the three main damage zones:\n\n| Location | Type | Severity |\n|---|---|---|\n| Arnold — Jeffco Blvd | Structural + Wind | Roof collapse, road closed |\n| Imperial — Old Lemay Ferry Rd | Structural | Home collapses, worst residential |\n| Hillsboro — Clayton Husky Rd | Structural | 8–9 structures, wider area |\n\nImperial had the highest per-street home damage count; Arnold had the most commercial impact; Hillsboro had the widest geographic spread.`);
+        resolve(`Comparing the three main damage zones:
+
+| Location | Type | Severity |
+|---|---|---|
+| Arnold — Jeffco Blvd | Structural + Wind | Roof collapse, road closed |
+| Imperial — Old Lemay Ferry Rd | Structural | Home collapses, worst residential |
+| Hillsboro — Clayton Husky Rd | Structural | 8–9 structures, wider area |
+
+Imperial had the highest per-street home damage count; Arnold had the most commercial impact; Hillsboro had the widest geographic spread.`);
       } else if (lower.includes('wind') || lower.includes('speed') || lower.includes('gust')) {
         resolve(`Peak wind gusts of **80 mph** hit NW St. Louis Metro and Arnold/Mehlville around 10 PM CDT on April 17. The 65–80 mph range is borderline EF1 tornado-equivalent for straight-line damage. Over **50,000 customers** lost power across MO and IL — Ameren MO handled the bulk of Missouri restoration. Downed lines and uprooted trees were the primary damage mechanism.`);
       } else if (lower.includes('imperial') || lower.includes('lemay')) {
@@ -109,7 +133,9 @@ function simulateChatResponse(msg) {
       } else if (lower.includes('hail')) {
         resolve(`The largest hail — **1.75" (golf ball size)** — hit NW St. Louis County, Bridgeton, and St. Ann around 10:05–10:10 PM. Northern Jefferson County received **1.0" (quarter size)**. At 1.75", expect dented metal roofing, cracked shingles, broken skylights, and significant vehicle body damage. The hail swath runs SW to NE — toggle the Hail Swath layer on the map to see the estimated path.`);
       } else {
-        resolve(`Based on the April 17–18 storm data for Jefferson County and St. Louis:\n\nThe event produced 80 mph winds, 1.75" hail, and structural damage across Arnold, Imperial, and Hillsboro. Nine storm reports are plotted on the map covering structural, hail, wind, and tornado threat. What would you like more detail on?`);
+        resolve(`Based on the April 17–18 storm data for Jefferson County and St. Louis:
+
+The event produced 80 mph winds, 1.75" hail, and structural damage across Arnold, Imperial, and Hillsboro. Nine storm reports are plotted on the map covering structural, hail, wind, and tornado threat. What would you like more detail on?`);
       }
     }, 800);
   });
@@ -224,13 +250,15 @@ function formatChatMarkdown(text) {
     if (cells.every(c => /^[\s\-:]+$/.test(c))) return '';
     return `<tr>${cells.map(c => `<td>${c.trim()}</td>`).join('')}</tr>`;
   });
-  out = out.replace(/((<tr>[\s\S]*?<\/tr>\n?)+)/g, m => `<table class="chat-table">${m}</table>`);
+  out = out.replace(/((<tr>[\s\S]*?<\/tr>
+?)+)/g, m => `<table class="chat-table">${m}</table>`);
   // Bold
   out = out.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
   // Bullets
   out = out.replace(/^[•\*] (.+)$/gm, '<div class="chat-bullet">• $1</div>');
   // Newlines
-  out = out.replace(/\n/g, '<br>');
+  out = out.replace(/
+/g, '<br>');
   return out;
 }
 
@@ -245,3 +273,4 @@ window.ChatModule = {
   clearChat,
   appendWelcomeMessage,
 };
+})();

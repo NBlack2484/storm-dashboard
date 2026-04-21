@@ -1,3 +1,4 @@
+;(function() {
 // spc.js — Live SPC storm reports feed (tornado, hail, wind)
 // Polls the Storm Prediction Center CSV every 3 minutes during active events.
 // CSV endpoint proxied through a CORS-friendly service since SPC doesn't set CORS headers.
@@ -34,7 +35,8 @@ let _spcActive = false;
  * (columns vary slightly by type; we handle all three)
  */
 function parseSPCCsv(csvText, type) {
-  const lines = csvText.trim().split('\n');
+  const lines = csvText.trim().split('
+');
   if (lines.length < 2) return [];
 
   const header = lines[0].toLowerCase().split(',').map(h => h.trim().replace(/"/g, ''));
@@ -181,3 +183,4 @@ window.SPCModule = {
   stopSPCPolling,
   resetSPCState,
 };
+})();

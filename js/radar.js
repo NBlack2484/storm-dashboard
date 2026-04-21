@@ -1,3 +1,4 @@
+;(function() {
 // radar.js — Live radar overlay: RainViewer (default) + Iowa State Mesonet
 //
 // RainViewer API v2 — free, no key, global NEXRAD composite + animation loop.
@@ -255,3 +256,4 @@ window.RadarModule = {
   setRadarOpacity,
   isRadarVisible,
 };
+})();
