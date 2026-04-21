@@ -14,6 +14,12 @@
 </head>
 <body>
 
+  <!-- New event detection banner (hidden until a new storm is detected) -->
+  <div id="new-event-banner" class="new-event-banner" style="display:none"></div>
+
+  <!-- Toast notification container -->
+  <div id="toast-container" class="toast-container"></div>
+
   <!-- Top navigation bar -->
   <nav class="topbar">
     <div class="topbar-brand">
@@ -64,10 +70,14 @@
 
     <!-- Sidebar -->
     <aside class="sidebar">
+
+      <!-- Tabs — now includes Archive and Chat -->
       <div class="sidebar-tabs">
-        <div class="sidebar-tab active" data-tab="alerts" onclick="switchTab('alerts')">NWS Alerts</div>
-        <div class="sidebar-tab" data-tab="reports" onclick="switchTab('reports')">Storm Reports</div>
-        <div class="sidebar-tab" data-tab="forecast" onclick="switchTab('forecast')">Forecast</div>
+        <div class="sidebar-tab active" data-tab="alerts"  onclick="switchTab('alerts')">NWS Alerts</div>
+        <div class="sidebar-tab"        data-tab="reports" onclick="switchTab('reports')">Reports</div>
+        <div class="sidebar-tab"        data-tab="forecast" onclick="switchTab('forecast')">Forecast</div>
+        <div class="sidebar-tab"        data-tab="archive" onclick="switchTab('archive')">Archive</div>
+        <div class="sidebar-tab"        data-tab="chat"    onclick="switchTab('chat')">💬 Chat</div>
       </div>
 
       <div class="sidebar-content">
@@ -129,6 +139,39 @@
           </div>
         </div>
 
+        <!-- Archive panel -->
+        <div class="tab-panel" id="panel-archive">
+          <div id="archive-list"></div>
+        </div>
+
+        <!-- Chat panel -->
+        <div id="panel-chat" class="tab-panel chat-panel-tab">
+
+          <!-- Quick suggestion chips -->
+          <div class="chat-chips">
+            <button class="chat-chip" data-q="Which area had the most structural damage?">Most damage?</button>
+            <button class="chat-chip" data-q="Generate an insurance claim summary for Jefferson County">Insurance claim</button>
+            <button class="chat-chip" data-q="Compare hail damage in Arnold vs Hillsboro">Compare areas</button>
+            <button class="chat-chip" data-q="What were the peak wind speeds and where?">Wind speeds</button>
+            <button class="chat-chip" data-q="What streets in Imperial had structural collapses?">Imperial streets</button>
+          </div>
+
+          <!-- Message log -->
+          <div id="chat-log" class="chat-log"></div>
+
+          <!-- Input row -->
+          <div class="chat-input-row">
+            <textarea id="chat-input" class="chat-input"
+              placeholder="Ask about damage locations, insurance, alerts…"
+              rows="2"></textarea>
+            <div class="chat-input-actions">
+              <button id="chat-clear-btn" class="ai-btn" title="Clear conversation">↺ Clear</button>
+              <button id="chat-send-btn" class="ai-btn primary">Send ↵</button>
+            </div>
+          </div>
+
+        </div>
+
       </div>
     </aside>
 
@@ -137,21 +180,56 @@
 
       <!-- Map toolbar -->
       <div class="map-toolbar">
+
+        <!-- Layer toggles -->
         <span class="toolbar-label">Layers:</span>
         <div class="toolbar-group">
           <button class="toolbar-btn active" data-layer="damage" onclick="setMapLayer('damage',this)">Damage sites</button>
           <button class="toolbar-btn" data-layer="hail" onclick="setMapLayer('hail',this)">Hail swath</button>
           <button class="toolbar-btn" data-layer="warnings" onclick="setMapLayer('warnings',this)">Watch zones</button>
         </div>
+
         <div class="toolbar-sep" style="height:24px;background:#e2e8f0;width:1px;margin:0 4px"></div>
-        <span class="toolbar-label">AI Analysis:</span>
+
+        <!-- Radar controls -->
+        <div class="toolbar-group">
+          <button id="radar-toggle-btn" class="toolbar-btn" onclick="toggleRadar()">📡 Radar</button>
+          <button id="radar-anim-btn" class="toolbar-btn" onclick="toggleAnimation()" title="Animate last 8 radar frames (RainViewer only)">▶ Animate</button>
+        </div>
+
+        <!-- Radar source switcher -->
+        <div class="toolbar-group radar-source-group">
+          <button class="toolbar-btn active" data-radar-source="rainviewer"
+            onclick="setRadarSource('rainviewer', this)" title="RainViewer — global, animated">RainViewer</button>
+          <button class="toolbar-btn" data-radar-source="mesonet"
+            onclick="setRadarSource('mesonet', this)" title="Iowa State Mesonet — NEXRAD CONUS">Mesonet</button>
+        </div>
+
+        <div class="toolbar-sep" style="height:24px;background:#e2e8f0;width:1px;margin:0 4px"></div>
+
+        <!-- Lightning toggle -->
+        <button id="lightning-toggle-btn" class="toolbar-btn" onclick="toggleLightning()"
+          title="Live lightning strikes via Blitzortung.org">⚡ Lightning</button>
+
+        <div class="toolbar-sep" style="height:24px;background:#e2e8f0;width:1px;margin:0 4px"></div>
+
+        <!-- AI Area briefing -->
+        <span class="toolbar-label">AI:</span>
         <button class="toolbar-btn" onclick="generateAreaSummary()"
           style="background:#2563eb;color:#fff;border-radius:6px;border:none">
           ✦ Area briefing
         </button>
+
+        <!-- Live status indicators -->
+        <span id="spc-live-badge" class="spc-badge" style="display:none"></span>
+        <span id="lightning-count" class="lightning-count-badge" style="display:none"></span>
+        <span id="radar-timestamp" class="radar-ts-label"></span>
+        <span id="lightning-status" class="lightning-status-label"></span>
+
         <div style="margin-left:auto;font-size:11px;color:#94a3b8">
           Click any map marker for AI damage summary
         </div>
+
       </div>
 
       <!-- Leaflet map -->
@@ -178,9 +256,14 @@
     </div>
   </div>
 
-  <!-- Scripts -->
+  <!-- Scripts — order matters -->
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script src="config.js" onerror="console.warn('config.js not found — copy config.example.js to config.js and add your API key')"></script>
+  <script src="js/spc.js"></script>
+  <script src="js/radar.js"></script>
+  <script src="js/lightning.js"></script>
+  <script src="js/archive.js"></script>
+  <script src="js/chat.js"></script>
   <script src="js/alerts.js"></script>
   <script src="js/map.js"></script>
   <script src="js/claude.js"></script>
