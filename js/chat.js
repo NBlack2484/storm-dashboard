@@ -220,13 +220,16 @@ function demoResponse(msg) {
 // ── UI helpers ────────────────────────────────────────────────────────────────
 
 function scrollToBottom() {
-  // Use setTimeout to ensure DOM has rendered before scrolling
-  setTimeout(function() {
+  // requestAnimationFrame fires after the browser paints — guaranteed to have correct scrollHeight
+  requestAnimationFrame(function() {
     var log = document.getElementById('chat-log');
-    if (log) {
+    if (!log) return;
+    log.scrollTop = log.scrollHeight;
+    // Second frame handles cases where images/tables cause reflow
+    requestAnimationFrame(function() {
       log.scrollTop = log.scrollHeight;
-    }
-  }, 50);
+    });
+  });
 }
 
 function addMsg(role, html) {
