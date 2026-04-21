@@ -202,30 +202,8 @@ function initChat(apiKey) {
   _apiKey = apiKey;
   _history = [];
   _busy = false;
-
-  // Send button
-  const btn = document.getElementById('chat-send-btn');
-  if (btn) btn.onclick = send;
-
-  // Enter key in textarea
-  const input = document.getElementById('chat-input');
-  if (input) {
-    input.onkeydown = function (e) {
-      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
-    };
-  }
-
-  // Clear button
-  const clearBtn = document.getElementById('chat-clear-btn');
-  if (clearBtn) clearBtn.onclick = clearChat;
-
-  // Suggestion chips
-  document.querySelectorAll('.chat-chip').forEach(chip => {
-    chip.onclick = function () {
-      const inp = document.getElementById('chat-input');
-      if (inp) { inp.value = this.dataset.q || this.textContent.trim(); send(); }
-    };
-  });
+  // Button wiring is handled via onclick attributes in HTML
+  // so it works regardless of panel visibility at load time
 }
 
 function clearChat() {
@@ -254,5 +232,13 @@ function updateChatContext(ctx) {
 // ── Export ────────────────────────────────────────────────────────────────────
 
 window.ChatModule = { initChat, updateChatContext, clearChat, appendWelcomeMessage };
+
+// Global handlers called directly from HTML onclick attributes
+window.chatSend = send;
+window.chatClear = clearChat;
+window.chatChip = function(el) {
+  var inp = document.getElementById('chat-input');
+  if (inp) { inp.value = el.dataset.q || el.textContent.trim(); send(); }
+};
 
 })();
