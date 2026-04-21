@@ -17,65 +17,143 @@ let _ctx     = { alerts: [], stormReports: [], spcReports: [], metrics: {} };
 const STREET_DETAIL = {
   arnold: {
     hail: [
-      'Jeffco Blvd between Hwy 141 and Plaza Dr — golf ball hail (1.75"), multiple vehicle losses',
+      'Jeffco Blvd between Hwy 141 and Plaza Dr — 1.75" golf ball hail, multiple vehicle losses',
+      'Fox Run subdivision (off Jeffco Blvd) — numerous roof claims',
       'Richardson Rd / Tenbrook Rd corridor — widespread shingle damage',
-      'Fox Run subdivision (off Jeffco Blvd) — numerous roof claims reported',
       'Arnold Commons shopping area — vehicle damage in parking areas',
       'Gravois Rd between Jeffco Blvd and Hwy 61 — moderate hail damage',
     ],
-    wind: [
-      'Jeffco Blvd at Hwy 141 intersection — structural collapse, road closure',
-      'Plaza Dr at Jeffco Blvd — building damage, debris',
-      'Arnold Crossroads area — multiple trees downed on Hwy 61/67',
-    ],
-    structural: [
-      'Commercial buildings on Jeffco Blvd between Hwy 141 and Plaza Dr',
-      'Several roof collapses reported near the Arnold city center corridor',
-    ],
+    wind: ['Jeffco Blvd at Hwy 141 — structural collapse, road closed', 'Hwy 61/67 corridor — multiple trees downed'],
+    structural: ['Commercial buildings on Jeffco Blvd between Hwy 141 and Plaza Dr'],
   },
   imperial: {
     hail: [
-      'Old Lemay Ferry Rd — direct path of hail core, structural + hail combined',
-      'Telegraph Rd (Hwy 61) at Imperial — vehicle damage, broken windshields',
-      'Carman Trails subdivision — significant roof damage reported',
+      'Old Lemay Ferry Rd — direct hail core path, 1.75", structural collapses',
+      'Carman Trails subdivision — significant roof damage',
       'Imperial Hills subdivision — widespread shingle loss',
       'Sandy Creek Estates — hail + wind combo damage',
+      'Telegraph Rd (Hwy 61) at Imperial — vehicle and windshield damage',
     ],
-    structural: [
-      'Old Lemay Ferry Rd residential corridor — several home structural collapses',
-      'Homes near Hwy 61 / Old Lemay Ferry intersection',
-    ],
+    structural: ['Old Lemay Ferry Rd residential corridor — several home collapses, worst per-street count in county'],
   },
   hillsboro: {
     hail: [
-      'Clayton Husky Rd — 8-9 structures with damage, mixed hail and wind',
-      'Klondike Rd at Clayton Husky Rd — worst intersection for structural damage',
-      'Hwy 21 corridor through Hillsboro — moderate hail, smaller size (~1")',
-      'Hillsboro subdivisions off Vail Rd — roof damage reported',
-    ],
-    structural: [
-      'Clayton Husky Rd / Klondike Rd area — 8-9 confirmed structural damage sites',
-      'Spread over roughly 2-mile corridor along Clayton Husky Rd',
+      'Clayton Husky Rd / Klondike Rd intersection — 8-9 structures damaged, epicenter of damage',
+      'Clayton Husky Rd corridor — damage spread over ~2 miles',
+      'Hwy 21 corridor — moderate hail (~1")',
+      'Vail Rd subdivisions — roof damage reported',
     ],
   },
-  stlouis_nw: {
+  bridgeton: {
     hail: [
-      'Bridgeton — golf ball hail (1.75") along Natural Bridge Rd and St. Charles Rock Rd',
-      'St. Ann — hail swath centered on Fee Fee Rd and St. Charles Rock Rd',
-      'Hazelwood — significant hail along Lindbergh Blvd north of I-70',
-      'Maryland Heights — hail damage along Page Ave / Dorsett Rd corridor',
-      'Creve Coeur — damage in subdivisions off Olive Blvd',
+      'St. Charles Rock Rd — golf ball hail (1.75"), heaviest corridor through Bridgeton',
+      'Natural Bridge Rd — widespread vehicle and roof damage',
+      'Harmony Estates subdivision (off St. Charles Rock Rd) — significant roof/structural damage, power out into Saturday',
+      'McDonnell Blvd — commercial property hail damage',
+      'Lambert Airport perimeter — ramp vehicle and equipment damage',
     ],
-    wind: [
-      'NW St. Louis County — 80 mph gusts downed lines on Lindbergh Blvd, I-270 corridor',
-      'Florissant area — widespread tree damage on Lindbergh Blvd and New Florissant Rd',
+    wind: ['I-270 corridor — 80 mph gusts, multiple lines down', 'St. Charles Rock Rd at Lindbergh — trees on lines'],
+  },
+  st_ann: {
+    hail: [
+      'Fee Fee Rd — center of hail swath, 1.5-1.75" diameter',
+      'St. Charles Rock Rd at St. Ann — widespread damage corridor',
+      'Midland Blvd residential neighborhoods — shingle and gutter damage',
+      'St. Ann Square shopping area — vehicle damage in parking lots',
+      'Ashby Rd / Midland Blvd area — residential roof damage',
+    ],
+  },
+  hazelwood: {
+    hail: [
+      'Lindbergh Blvd north of I-70 — hail and wind damage, lines downed',
+      'New Florissant Rd — tree and roof damage corridor',
+      'Howdershell Rd area — residential hail damage',
+      'McDonnell Blvd corridor — 1.0-1.5" hail',
+    ],
+    wind: ['Lindbergh Blvd / I-270 interchange — major tree and utility line damage'],
+  },
+  maryland_heights: {
+    hail: [
+      'Page Ave / Dorsett Rd corridor — 1.5" hail, widespread roof damage',
+      'Creve Coeur Soccer Park (off Dorsett Rd) — major structural damage, roof blown off office building, walls collapsed',
+      'Westport Plaza area — commercial hail and wind damage',
+      'Fee Fee Rd at Page Ave — vehicle damage, broken windshields',
+      'Lackland Rd area — residential and commercial hail damage',
+    ],
+    structural: ['Creve Coeur Soccer Park — walls torn down, main office roof destroyed'],
+  },
+  creve_coeur: {
+    hail: [
+      'Olive Blvd corridor — subdivisions on both sides, 1.25-1.5" hail',
+      'Ladue Rd / Conway Rd area — residential roof damage',
+      'Spoede Rd residential neighborhoods — shingle and gutter damage',
+      'Chesterfield Pkwy at Olive — business and vehicle damage',
+      'I-270 at Olive Blvd interchange — commercial area vehicle damage',
+    ],
+  },
+  chesterfield: {
+    hail: [
+      'Chesterfield Mall area — vehicle damage in parking lots',
+      'Clarkson Rd corridor — hail and wind damage',
+      'Long Rd / Baxter Rd area — residential hail damage',
+      'Lydia Hill and surrounding subdivisions — roof claims',
+    ],
+    tornado: ['EF0 tornado near I-64 / Clarkson Rd / Olive Blvd — 2-mile track confirmed by NWS, tree damage'],
+  },
+  ballwin: {
+    hail: [
+      'Manchester Rd (Hwy 100) corridor — hail swath, vehicle and roof damage',
+      'Clayton Rd / Big Bend Blvd — residential neighborhoods impacted',
+      'Holloway Rd area — large branches down, wind-driven debris',
+      'Henry Ave / Ries Rd subdivisions — moderate hail damage',
+    ],
+    wind: ['Manchester Rd — large branches down, widespread wind debris reported by residents'],
+  },
+  florissant: {
+    hail: [
+      'Lindbergh Blvd — widespread tree and roof damage corridor',
+      'New Florissant Rd — line and tree damage',
+      'Dunn Rd / Shackelford Rd area — residential neighborhoods',
+      'Charbonier Rd corridor — moderate hail damage',
+    ],
+    wind: ['Lindbergh Blvd / New Florissant Rd — major tree damage, extended outages'],
+  },
+  st_charles: {
+    hail: [
+      'Main St / First Capitol Dr — historic district, vehicle and roof damage',
+      'Mid Rivers Mall area — vehicle damage in parking areas',
+      'I-70 corridor through St. Charles — 1.0-1.5" hail',
+      'Zumbehl Rd residential neighborhoods — shingle damage',
+    ],
+  },
+  ofallon_mo: {
+    hail: [
+      'West Terra Lane at I-70 — auto dealerships with major vehicle inventory damage',
+      'St. Dominic High School area — ground covered in hail, senior parking lot severely damaged',
+      'Winghaven Blvd — newer subdivision, widespread shingle claims',
+      'Bryan Rd residential area — roof damage reported',
+      'Hwy 40 / I-64 corridor — commercial and residential hail swath',
+      'City Hall / Civic Park area — municipal building and employee vehicle damage',
+    ],
+    structural: [
+      'West Terra Lane dealerships — windshields shattered, body damage across ~450 vehicles',
+      'St. Dominic High School — significant hail damage to building and vehicles',
+      'O\'Fallon Emergency Operations Center — county and personal vehicles damaged',
+    ],
+  },
+  wentzville: {
+    hail: [
+      'Pearce Blvd / Wentzville Pkwy — hail swath, 1.0-1.5"',
+      'I-70 at Wentzville — commercial corridor vehicle damage',
+      'O\'Bryan Rd / Graham Rd — residential subdivisions with roof claims',
+      'Pitman Rd area — neighborhoods with shingle damage',
     ],
   },
   mehlville: {
     hail: [
-      'Lemay Ferry Rd corridor — hail swath edge, ~1.0-1.25" diameter',
+      'Lemay Ferry Rd corridor — hail swath edge, ~1.0-1.25"',
       'Tesson Ferry Rd area — moderate hail damage',
-      'Oakville area — outer hail swath, mostly vehicle damage',
+      'Oakville subdivisions — outer swath, mostly vehicle damage',
     ],
   },
 };
@@ -95,13 +173,19 @@ function buildSystem() {
 
   const m = _ctx.metrics || {};
 
-  // Build street-level detail summary for prompt
-  const streetDetail = [
-    'ARNOLD HAIL/WIND STREETS: ' + STREET_DETAIL.arnold.hail.join(' | '),
-    'IMPERIAL HAIL STREETS: ' + STREET_DETAIL.imperial.hail.join(' | '),
-    'HILLSBORO HAIL STREETS: ' + STREET_DETAIL.hillsboro.hail.join(' | '),
-    'NW ST. LOUIS COUNTY HAIL: ' + STREET_DETAIL.stlouis_nw.hail.join(' | '),
-  ].join('\n');
+  // Build street-level detail summary for all areas
+  var areas = ['arnold','imperial','hillsboro','bridgeton','st_ann','hazelwood',
+    'maryland_heights','creve_coeur','chesterfield','ballwin','florissant',
+    'st_charles','ofallon_mo','wentzville','mehlville'];
+  var streetDetail = areas.map(function(k) {
+    var d = STREET_DETAIL[k];
+    if (!d) return '';
+    var lines = [];
+    if (d.hail) lines.push(k.toUpperCase() + ' HAIL: ' + d.hail.join(' | '));
+    if (d.structural) lines.push(k.toUpperCase() + ' STRUCTURAL: ' + d.structural.join(' | '));
+    if (d.tornado) lines.push(k.toUpperCase() + ' TORNADO: ' + d.tornado.join(' | '));
+    return lines.join('\n');
+  }).filter(Boolean).join('\n');
 
   return [
     'You are an emergency management assistant for the Jefferson County & St. Louis storm dashboard.',
@@ -212,6 +296,43 @@ function demoResponse(msg) {
   // Compare areas
   if (q.includes('compare') || q.includes('vs') || q.includes('versus') || q.includes('difference')) {
     return `Area comparison:\n\n| Area | Hail | Wind | Structural |\n|---|---|---|---|\n| Arnold (Jeffco Blvd) | 1.75" | 80 mph | Roof collapses, road closed |\n| Imperial (Old Lemay Ferry) | 1.75" | 65-70 mph | Home collapses, worst residential |\n| Hillsboro (Clayton Husky) | 1.0-1.5" | 60-65 mph | 8-9 structures, widest area |\n| NW St. Louis (Bridgeton) | 1.75" | 80 mph | Vehicle + roof, possible tornado |`;
+  }
+
+  // Bridgeton
+  if (q.includes('bridgeton')) {
+    return 'Bridgeton hail damage (1.75" golf ball):\n\n• **St. Charles Rock Rd** — primary damage corridor through Bridgeton, widespread roof and vehicle damage\n• **Natural Bridge Rd** — structural and vehicle damage\n• **Harmony Estates subdivision** — numerous homes damaged, extended power outages\n• **Fee Fee Rd at St. Charles Rock Rd** — vehicle and structure damage\n• Commercial properties along St. Charles Rock Rd — roof damage reported';
+  }
+  // St. Ann
+  if (q.includes('st. ann') || q.includes('st ann')) {
+    return 'St. Ann hail damage (1.75" golf ball):\n\n• **Fee Fee Rd** — center of hail swath through St. Ann\n• **St. Charles Rock Rd at St. Ann** — vehicle and roof damage\n• Subdivisions between **Fee Fee Rd and Lindbergh Blvd** — widespread shingle loss\n• St. Ann commercial corridor on St. Charles Rock Rd — vehicle damage';
+  }
+  // Hazelwood
+  if (q.includes('hazelwood')) {
+    return 'Hazelwood hail and wind damage:\n\n• **Lindbergh Blvd north of I-70** — significant hail and 75-80 mph wind gusts\n• **Howdershell Rd corridor** — moderate to heavy hail damage\n• **Dunn Rd subdivisions** — roof damage reported\n• Hazelwood Central High School area — vehicle and structure damage\n• I-270/Lindbergh interchange — downed power lines';
+  }
+  // Maryland Heights
+  if (q.includes('maryland heights') || q.includes('maryland hts')) {
+    return 'Maryland Heights hail damage (1.75" golf ball in western areas):\n\n• **Page Ave / Dorsett Rd corridor** — golf ball hail, heavy damage\n• **Creve Coeur Soccer Park** — major structural damage, office building walls collapsed\n• **Fee Fee Rd near Page Ave** — vehicle and roof damage\n• **Riverport / Maryland Heights Expwy** business district — commercial roof damage\n• Subdivisions off Dorsett Rd — residential shingle and gutter damage';
+  }
+  // Creve Coeur
+  if (q.includes('creve coeur') || q.includes('creve coeur')) {
+    return 'Creve Coeur hail damage (1.25-1.5" on eastern fringe of swath):\n\n• **Olive Blvd corridor** — hail swath edge, vehicle and roof damage\n• **Ladue Rd / Olive Blvd intersection** — vehicle and roof damage\n• Subdivisions west of **I-270 along Olive Blvd** — scattered roof damage\n• **Creve Coeur Lake area** — vehicle and structure damage\n• Chesterfield Ave / New Ballas Rd — moderate hail damage';
+  }
+  // Chesterfield
+  if (q.includes('chesterfield')) {
+    return 'Chesterfield hail damage (outer fringe, 1.0-1.25"):\n\n• **Chesterfield Valley** — outer edge of hail swath\n• **Long Rd / Clarkson Rd corridor** — moderate hail, roof and vehicle damage\n• **Chesterfield Mall area** — vehicle damage in parking areas\n• Subdivisions off **Baxter Rd** — scattered shingle damage\n• **Wild Horse Creek Rd** — moderate damage reported';
+  }
+  // St. Charles County (O'Fallon, St. Peters, Cottleville, Wentzville, Dardenne)
+  if (q.includes('st. charles') || q.includes('st charles') || q.includes('ofallon') || q.includes("o'fallon") || q.includes('st. peters') || q.includes('st peters') || q.includes('cottleville') || q.includes('wentzville') || q.includes('dardenne')) {
+    return 'St. Charles County hail damage (outer swath fringe, generally 0.75-1.25"):\n\n• **O\u2019Fallon — Terra Lane / I-70 corridor** — vehicle and roof damage\n• **St. Peters — Cave Springs Rd / Hwy 70** area — moderate hail\n• **Cottleville** — eastern fringe of swath, 1.0-1.25" hail\n• **Dardenne Prairie — Mid Rivers Mall Dr** — moderate hail\n• **Wentzville** — outer fringe, lighter hail 0.75-1.0"\n\nNote: St. Charles County received smaller hail than the NW St. Louis County core (1.75"). Damage is primarily roof and vehicle rather than structural.';
+  }
+  // Florissant
+  if (q.includes('florissant')) {
+    return 'Florissant hail and wind damage:\n\n• **Lindbergh Blvd and New Florissant Rd** — hail and 70-75 mph wind gusts\n• **Shackelford Rd area** — residential roof damage\n• Subdivisions off **Howdershell Rd** — moderate hail damage\n• New Florissant Rd — multiple trees downed on homes';
+  }
+  // South County
+  if (q.includes('mehlville') || q.includes('oakville') || q.includes('south county') || q.includes('tesson ferry')) {
+    return 'South St. Louis County hail damage (outer swath, ~1.0-1.25"):\n\n• **Mehlville / Oakville** — outer hail swath edge\n• **Lemay Ferry Rd corridor** — moderate hail damage\n• **Tesson Ferry Rd area** — lighter hail, mostly vehicle damage\n• Gravois Rd south of Arnold — transitional zone\n\nThis area received smaller hail than the NW county core. Damage is primarily vehicle and roof shingles.';
   }
 
   return `Based on the April 17-18 storm data for Jefferson County and St. Louis. I have street-level detail for:\n\n• **Arnold** — Jeffco Blvd, Fox Run, Richardson/Tenbrook Rd\n• **Imperial** — Old Lemay Ferry Rd, Carman Trails, Imperial Hills\n• **Hillsboro** — Clayton Husky Rd, Klondike Rd\n• **NW St. Louis** — Natural Bridge Rd, St. Charles Rock Rd, Fee Fee Rd\n\nAsk about a specific area, street, or subdivision for detail.`;
@@ -338,7 +459,7 @@ function appendWelcomeMessage() {
   if (!log) return;
   var wrap = document.createElement('div');
   wrap.className = 'chat-msg chat-msg-assistant';
-  wrap.innerHTML = '<div class="chat-bubble chat-bubble-assistant chat-welcome"><strong>Storm Assistant ready.</strong><br>Ask about specific streets, subdivisions, hail damage locations, insurance claims, or area comparisons.</div>';
+  wrap.innerHTML = '<div class="chat-bubble chat-bubble-assistant chat-welcome"><strong>Storm Assistant ready.</strong><br>I have street-level hail detail for Arnold, Imperial, Hillsboro, Bridgeton, St. Ann, Hazelwood, Maryland Heights, Creve Coeur, Chesterfield, Ballwin, Florissant, O\'Fallon, Wentzville, and St. Charles. Ask about any area.</div>';
   log.appendChild(wrap);
   scrollToBottom();
 }
