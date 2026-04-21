@@ -1,57 +1,68 @@
 ;(function() {
 // chat.js — Conversational chat interface powered by Claude AI
+// Users can ask natural language questions about active alerts, storm reports,
+// damage locations, insurance guidance, and more.
 
-const CHAT_MODEL    = 'claude-sonnet-4-20250514';
+const CHAT_MODEL = 'claude-sonnet-4-20250514';
 const CHAT_ENDPOINT = 'https://api.anthropic.com/v1/messages';
 
+// Keep a rolling conversation history for multi-turn context
 let _chatHistory = [];
+let _chatOpen = false;
 let _apiKey = null;
 
+// Current dashboard context injected into every system prompt
 let _dashboardContext = {
-  alerts: [], stormReports: [], spcReports: [], metrics: {},
+  alerts: [],
+  stormReports: [],
+  spcReports: [],
+  metrics: {},
+  archivedEvents: [],
 };
 
-// ── System prompt ─────────────────────────────────────────────────────────────
+// ── Context builder ───────────────────────────────────────────────────────────
 
 function buildSystemPrompt(ctx) {
   const alertSummary = (ctx.alerts || []).slice(0, 6).map(a => {
     const p = a.properties;
     return `- ${p.event} (${p.severity}): ${p.areaDesc}`;
-  }).join('
-') || 'No active NWS alerts.';
+  }).join('\n') || 'No active NWS alerts in watch zones.';
 
   const reportSummary = [...(ctx.stormReports || []), ...(ctx.spcReports || [])]
     .slice(0, 20)
-    .map(r => `- ${(r.type || r.label || '').toUpperCase()} | ${r.location} | ${r.magnitude} | ${r.detail}`)
-    .join('
-') || 'No storm reports loaded.';
+    .map(r => `- ${r.type?.toUpperCase() || r.label} | ${r.location} | ${r.magnitude} | ${r.detail}`)
+    .join('\n') || 'No storm reports loaded.';
 
-  const m = ctx.metrics || {};
+  const metrics = ctx.metrics || {};
 
   return `You are an emergency management and insurance guidance assistant embedded in a live storm dashboard for Jefferson County and St. Louis, Missouri.
 
+You have access to real-time storm data. Use it to give specific, location-accurate answers.
+
 CURRENT DASHBOARD METRICS:
-- Active NWS alerts: ${m.warnings || 0}
-- Storm reports on map: ${m.reports || 0}
-- Max hail: ${m.maxHail || 'N/A'}
-- Peak wind: ${m.peakWind || 'N/A'}
-- Power outages: ${m.outages || 'Unknown'}
+- Active NWS alerts: ${metrics.warnings || 0}
+- Storm reports on map: ${metrics.reports || 0}
+- Max hail: ${metrics.maxHail || 'N/A'}
+- Peak wind: ${metrics.peakWind || 'N/A'}
+- Power outages: ${metrics.outages || 'Unknown'}
 
 ACTIVE NWS ALERTS:
 ${alertSummary}
 
-ALL PLOTTED STORM REPORTS:
+STORM REPORTS (all plotted locations):
 ${reportSummary}
 
 INSTRUCTIONS:
-- Answer in plain, direct language. No preamble.
-- Reference actual street names and locations from the report data above.
-- For insurance questions, give specific actionable guidance.
-- Keep responses to 3-6 sentences or a short bulleted list unless detail is requested.
-- If data for a question isn't available, say so clearly.`;
+- Answer in plain, direct language — no excessive preamble
+- When asked about locations, reference actual street names and areas from the data above
+- For insurance questions, give actionable, specific guidance (coverage types, documentation steps, adjuster tips)
+- If asked to compare areas, pull exact magnitudes and damage types from the report data
+- Keep responses concise: 3–6 sentences or a short bulleted list unless detail is explicitly requested
+- If you don't have specific data for a question, say so clearly rather than guessing
+- You can answer follow-up questions — the conversation history is maintained`;
 }
 
-// ── Claude API ────────────────────────────────────────────────────────────────
+// ── Claude API call ───────────────────────────────────────────────────────────
 
 async function sendChatMessage(userMessage) {
   if (!_apiKey || _apiKey === 'YOUR_ANTHROPIC_API_KEY_HERE') {
@@ -59,6 +70,8 @@ async function sendChatMessage(userMessage) {
   }
 
   _chatHistory.push({ role: 'user', content: userMessage });
+
+  // Keep history bounded (last 12 turns = 24 messages)
   if (_chatHistory.length > 24) _chatHistory = _chatHistory.slice(-24);
 
   try {
@@ -88,12 +101,13 @@ async function sendChatMessage(userMessage) {
     _chatHistory.push({ role: 'assistant', content: reply });
     return reply;
   } catch (err) {
+    // Remove the user message we added so history stays clean on retry
     _chatHistory.pop();
     throw err;
   }
 }
 
-// ── Demo responses (no API key) ───────────────────────────────────────────────
+// ── Demo fallback ─────────────────────────────────────────────────────────────
 
 function simulateChatResponse(msg) {
   const lower = msg.toLowerCase();
@@ -102,59 +116,54 @@ function simulateChatResponse(msg) {
       if (lower.includes('structural') || lower.includes('worst') || lower.includes('most damage')) {
         resolve(`The highest concentration of structural damage is in three areas:
 
-• **Arnold — Jeffco Blvd**: Roof collapses along Jeffco Blvd between Hwy 141 and Plaza Dr. Road closed.
-• **Imperial — Old Lemay Ferry Rd**: Several home structural collapses — worst residential impact in the county.
-• **Hillsboro — Clayton Husky Rd**: 8–9 structures damaged across the Klondike/Clayton Husky Rd corridor.
+• **Arnold — Jeffco Blvd**: Roof collapses and structural failures along Jeffco Blvd between Hwy 141 and Plaza Dr. Road closed.
+• **Imperial — Old Lemay Ferry Rd**: Several home structural collapses, worst in the county by home count.
+• **Hillsboro — Clayton Husky Rd**: 8–9 structures with varying structural damage in the Klondike/Clayton Husky Rd corridor.
 
 Arnold and Imperial took the worst of the 80 mph straight-line winds.`);
       } else if (lower.includes('insurance') || lower.includes('claim')) {
         resolve(`For Jefferson County claims from the April 17–18 event:
 
-• **File promptly** — claim volumes are high; early filing means faster adjuster scheduling
-• **Document before cleanup** — timestamped photos/video of all damage
-• **Structural damage**: Covered under dwelling coverage; get a structural engineer inspection before re-entering
-• **Hail (1.75")**: Qualifies for roof replacement under most RCV policies
-• **Vehicles**: File under comprehensive auto — weather event, not collision
-• Jefferson County Emergency Management: 636-797-6450`);
-      } else if (lower.includes('compare') || lower.includes('arnold') || lower.includes('hillsboro')) {
+• **File promptly** — claim volumes are high, early filing means faster adjuster scheduling
+• **Document everything before cleanup** — timestamped photos/video of all damage
+• **Structural damage**: Covered under dwelling coverage; request a structural engineer inspection before entering compromised buildings
+• **Hail (1.75")**: Qualifies for roof replacement under most RCV policies; get 3 contractor bids
+• **Vehicles**: File under comprehensive auto — this storm qualifies as a weather event, not collision
+• Jefferson County Emergency Management: 636-797-6450 for official damage documentation`);
+      } else if (lower.includes('hail')) {
+        resolve(`The largest hail — **1.75" (golf ball size)** — hit NW St. Louis County, Bridgeton, and St. Ann around 10:05–10:10 PM. Northern Jefferson County received **1.0" (quarter size)** hail. The hail swath runs roughly SW to NE from St. Louis County through the metro corridor. At 1.75", expect dented metal roofing, cracked shingles, broken skylights, and significant vehicle body damage.`);
+      } else if (lower.includes('wind') || lower.includes('outage')) {
+        resolve(`Peak wind gusts of **80 mph** were recorded across NW St. Louis Metro, with 65–70 mph gusts through Arnold and Mehlville. These are borderline EF1 tornado-equivalent winds for straight-line damage. Over **50,000 customers** lost power across MO, IL, and surrounding states — Ameren MO handled the bulk of Missouri restoration. Downed lines and uprooted trees were the primary mechanism.`);
+      } else if (lower.includes('compare') || lower.includes('arnold') || lower.includes('hillsboro') || lower.includes('imperial')) {
         resolve(`Comparing the three main damage zones:
 
 | Location | Type | Severity |
 |---|---|---|
 | Arnold — Jeffco Blvd | Structural + Wind | Roof collapse, road closed |
-| Imperial — Old Lemay Ferry Rd | Structural | Home collapses, worst residential |
-| Hillsboro — Clayton Husky Rd | Structural | 8–9 structures, wider area |
+| Imperial — Old Lemay Ferry Rd | Structural | Home collapses, worst residential impact |
+| Hillsboro — Clayton Husky Rd | Structural | 8–9 structures, spread over wider area |
 
-Imperial had the highest per-street home damage count; Arnold had the most commercial impact; Hillsboro had the widest geographic spread.`);
-      } else if (lower.includes('wind') || lower.includes('speed') || lower.includes('gust')) {
-        resolve(`Peak wind gusts of **80 mph** hit NW St. Louis Metro and Arnold/Mehlville around 10 PM CDT on April 17. The 65–80 mph range is borderline EF1 tornado-equivalent for straight-line damage. Over **50,000 customers** lost power across MO and IL — Ameren MO handled the bulk of Missouri restoration. Downed lines and uprooted trees were the primary damage mechanism.`);
-      } else if (lower.includes('imperial') || lower.includes('lemay')) {
-        resolve(`Imperial's worst damage was concentrated on **Old Lemay Ferry Road**, where several homes suffered structural collapses and severe roof damage. This was the highest per-street residential damage count in the county from the April 17 event. If you're filing an insurance claim for this area, contact Jefferson County Emergency Management at 636-797-6450 to get on the official damage registry, which can support your claim.`);
-      } else if (lower.includes('hail')) {
-        resolve(`The largest hail — **1.75" (golf ball size)** — hit NW St. Louis County, Bridgeton, and St. Ann around 10:05–10:10 PM. Northern Jefferson County received **1.0" (quarter size)**. At 1.75", expect dented metal roofing, cracked shingles, broken skylights, and significant vehicle body damage. The hail swath runs SW to NE — toggle the Hail Swath layer on the map to see the estimated path.`);
+Imperial had the highest per-street home damage count; Arnold had the most commercial/road impact; Hillsboro had the widest geographic spread.`);
       } else {
         resolve(`Based on the April 17–18 storm data for Jefferson County and St. Louis:
 
-The event produced 80 mph winds, 1.75" hail, and structural damage across Arnold, Imperial, and Hillsboro. Nine storm reports are plotted on the map covering structural, hail, wind, and tornado threat. What would you like more detail on?`);
+The event produced 80 mph winds, 1.75" hail, and structural damage across Arnold, Imperial, and Hillsboro. Nine storm reports are plotted on the map covering structural, hail, wind, and tornado threat. Is there a specific area or type of damage you'd like more detail on?`);
       }
-    }, 800);
+    }, 900);
   });
 }
 
-// ── Init & DOM wiring ─────────────────────────────────────────────────────────
+// ── DOM / UI ──────────────────────────────────────────────────────────────────
 
-function initChat(apiKey, panelId) {
+function initChat(apiKey, containerId) {
   _apiKey = apiKey;
   _chatHistory = [];
 
-  // panelId is the container — we look for elements inside the whole document
-  // since the panel may not be visible yet when chips are rendered
-  const sendBtn  = document.getElementById('chat-send-btn');
-  const input    = document.getElementById('chat-input');
-  const clearBtn = document.getElementById('chat-clear-btn');
+  // Wire send button and enter key
+  const input = document.getElementById('chat-input');
+  const sendBtn = document.getElementById('chat-send-btn');
 
-  if (sendBtn)  sendBtn.addEventListener('click', handleSend);
-  if (clearBtn) clearBtn.addEventListener('click', clearChat);
+  if (sendBtn) sendBtn.addEventListener('click', handleSend);
   if (input) {
     input.addEventListener('keydown', e => {
       if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); }
@@ -164,13 +173,14 @@ function initChat(apiKey, panelId) {
   // Wire suggestion chips
   document.querySelectorAll('.chat-chip').forEach(chip => {
     chip.addEventListener('click', () => {
-      const inp = document.getElementById('chat-input');
-      if (inp) {
-        inp.value = chip.dataset.q || chip.textContent.trim();
-        handleSend();
-      }
+      const input = document.getElementById('chat-input');
+      if (input) { input.value = chip.dataset.q || chip.textContent; handleSend(); }
     });
   });
+
+  // Wire clear button
+  const clearBtn = document.getElementById('chat-clear-btn');
+  if (clearBtn) clearBtn.addEventListener('click', clearChat);
 }
 
 async function handleSend() {
@@ -180,13 +190,13 @@ async function handleSend() {
 
   input.value = '';
   appendMessage('user', msg);
-  appendMessage('assistant', null); // loading dots
+  appendMessage('assistant', null); // loading placeholder
 
   try {
     const reply = await sendChatMessage(msg);
     replaceLastAssistantMessage(reply);
   } catch (err) {
-    replaceLastAssistantMessage(`Error: ${err.message}. Check your API key in config.js.`);
+    replaceLastAssistantMessage(`Error: ${err.message}`);
   }
 }
 
@@ -199,6 +209,7 @@ function appendMessage(role, text) {
   div.dataset.role = role;
 
   if (text === null) {
+    // Loading state
     div.innerHTML = `<div class="chat-bubble chat-bubble-${role} chat-loading">
       <span class="chat-dot"></span><span class="chat-dot"></span><span class="chat-dot"></span>
     </div>`;
@@ -213,8 +224,7 @@ function appendMessage(role, text) {
 function replaceLastAssistantMessage(text) {
   const log = document.getElementById('chat-log');
   if (!log) return;
-  const msgs = log.querySelectorAll('[data-role="assistant"]');
-  const last = msgs[msgs.length - 1];
+  const last = log.querySelector('[data-role="assistant"]:last-child');
   if (last) {
     last.innerHTML = `<div class="chat-bubble chat-bubble-assistant">${formatChatMarkdown(text)}</div>`;
   } else {
@@ -237,31 +247,31 @@ function appendWelcomeMessage() {
   div.className = 'chat-msg chat-msg-assistant';
   div.innerHTML = `<div class="chat-bubble chat-bubble-assistant chat-welcome">
     <strong>Storm Assistant ready.</strong><br>
-    Ask me about damage locations, insurance claims, hail or wind data, or use the quick buttons above.
+    Ask me about damage locations, insurance claims, hail/wind data, or area comparisons.
   </div>`;
   log.appendChild(div);
 }
 
-// Light markdown → HTML
+/** Light markdown → HTML: bold, bullets, tables */
 function formatChatMarkdown(text) {
-  // Tables
-  let out = text.replace(/^\|(.+)\|$/gm, row => {
-    const cells = row.split('|').filter(c => c.trim() !== '');
-    if (cells.every(c => /^[\s\-:]+$/.test(c))) return '';
-    return `<tr>${cells.map(c => `<td>${c.trim()}</td>`).join('')}</tr>`;
-  });
-  out = out.replace(/((<tr>[\s\S]*?<\/tr>
-?)+)/g, m => `<table class="chat-table">${m}</table>`);
-  // Bold
-  out = out.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
-  // Bullets
-  out = out.replace(/^[•\*] (.+)$/gm, '<div class="chat-bullet">• $1</div>');
-  // Newlines
-  out = out.replace(/
-/g, '<br>');
-  return out;
+  return text
+    // Tables — basic pipe tables
+    .replace(/^\|(.+)\|$/gm, row => {
+      const cells = row.split('|').filter(Boolean).map(c => c.trim());
+      if (cells.every(c => /^[-:]+$/.test(c))) return ''; // separator row
+      return `<tr>${cells.map(c => `<td>${c}</td>`).join('')}</tr>`;
+    })
+    .replace(/((<tr>.*<\/tr>\n?)+)/gs, m => `<table class="chat-table">${m}</table>`)
+    // Bold
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    // Bullets
+    .replace(/^• (.+)$/gm, '<div class="chat-bullet">• $1</div>')
+    .replace(/^\* (.+)$/gm, '<div class="chat-bullet">• $1</div>')
+    // Newlines
+    .replace(/\n/g, '<br>');
 }
 
+/** Update the context Claude will use for chat responses */
 function updateChatContext(ctx) {
   Object.assign(_dashboardContext, ctx);
 }
@@ -273,4 +283,5 @@ window.ChatModule = {
   clearChat,
   appendWelcomeMessage,
 };
+
 })();
