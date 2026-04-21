@@ -149,11 +149,11 @@
 
           <!-- Quick suggestion chips -->
           <div class="chat-chips">
-            <button class="chat-chip" data-q="Which area had the most structural damage?">Most damage?</button>
-            <button class="chat-chip" data-q="Generate an insurance claim summary for Jefferson County">Insurance claim</button>
-            <button class="chat-chip" data-q="Compare hail damage in Arnold vs Hillsboro">Compare areas</button>
-            <button class="chat-chip" data-q="What were the peak wind speeds and where?">Wind speeds</button>
-            <button class="chat-chip" data-q="What streets in Imperial had structural collapses?">Imperial streets</button>
+            <button class="chat-chip" data-q="Which area had the most structural damage?" onclick="window.chatChip(this)">Most damage?</button>
+            <button class="chat-chip" data-q="Generate an insurance claim summary for Jefferson County" onclick="window.chatChip(this)">Insurance claim</button>
+            <button class="chat-chip" data-q="Compare hail damage in Arnold vs Hillsboro" onclick="window.chatChip(this)">Compare areas</button>
+            <button class="chat-chip" data-q="What were the peak wind speeds and where?" onclick="window.chatChip(this)">Wind speeds</button>
+            <button class="chat-chip" data-q="What streets in Imperial had structural collapses?" onclick="window.chatChip(this)">Imperial streets</button>
           </div>
 
           <!-- Message log -->
@@ -162,11 +162,11 @@
           <!-- Input row -->
           <div class="chat-input-row">
             <textarea id="chat-input" class="chat-input"
-              placeholder="Ask about damage locations, insurance, alerts…"
+              placeholder="Ask about damage locations, insurance, alerts…" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();window.chatSend();}"
               rows="2"></textarea>
             <div class="chat-input-actions">
-              <button id="chat-clear-btn" class="ai-btn" title="Clear conversation">↺ Clear</button>
-              <button id="chat-send-btn" class="ai-btn primary">Send ↵</button>
+              <button id="chat-clear-btn" class="ai-btn" title="Clear conversation" onclick="window.chatClear()">↺ Clear</button>
+              <button id="chat-send-btn" class="ai-btn primary" onclick="window.chatSend()">Send ↵</button>
             </div>
           </div>
 
