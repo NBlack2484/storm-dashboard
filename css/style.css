@@ -470,7 +470,7 @@ body {
   border-bottom: 1px solid var(--gray-100);
 }
 .chat-chip {
-  font-size: 11px;
+  font-size: 12px;
   padding: 3px 8px;
   border: 1px solid var(--gray-200);
   border-radius: 20px;
@@ -512,8 +512,8 @@ body {
   width: fit-content;
   padding: 8px 10px;
   border-radius: 10px;
-  font-size: 12px;
-  line-height: 1.55;
+  font-size: 14px;
+  line-height: 1.6;
   word-wrap: break-word;
   overflow-wrap: break-word;
 }
@@ -558,7 +558,7 @@ body {
 
 .chat-table {
   border-collapse: collapse;
-  font-size: 11px;
+  font-size: 13px;
   margin: 4px 0;
   width: 100%;
 }
@@ -576,7 +576,7 @@ body {
 }
 .chat-input {
   width: 100%;
-  font-size: 12px;
+  font-size: 14px;
   font-family: inherit;
   border: 1px solid var(--gray-200);
   border-radius: var(--radius);
