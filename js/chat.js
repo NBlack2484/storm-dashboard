@@ -161,54 +161,192 @@ const STREET_DETAIL = {
 // ── System prompt ─────────────────────────────────────────────────────────────
 
 function buildSystem() {
-  const alerts = (_ctx.alerts || []).slice(0, 6).map(a => {
-    const p = a.properties || {};
-    return `- ${p.event || '?'} (${p.severity || '?'}): ${p.areaDesc || '?'}`;
-  }).join('\n') || 'None';
+  var m = _ctx.metrics || {};
+  var alerts = (_ctx.alerts || []);
+  var reports = [...(_ctx.stormReports || []), ...(_ctx.spcReports || [])];
 
-  const reports = [...(_ctx.stormReports || []), ...(_ctx.spcReports || [])]
-    .slice(0, 20)
-    .map(r => `- ${(r.type || r.label || '?').toUpperCase()} | ${r.location} | ${r.magnitude} | ${r.detail}`)
-    .join('\n') || 'None';
+  // Determine which watch zones are currently active
+  var activeZones = detectActiveZones(alerts);
 
-  const m = _ctx.metrics || {};
+  // Build alert summary
+  var alertSummary = alerts.slice(0, 6).map(function(a) {
+    var p = a.properties || {};
+    return '- ' + (p.event || '?') + ' (' + (p.severity || '?') + '): ' + (p.areaDesc || '?');
+  }).join('\n') || 'No active NWS alerts — showing April 17-18 2026 event data.';
 
-  // Build street-level detail summary for all areas
-  var areas = ['arnold','imperial','hillsboro','bridgeton','st_ann','hazelwood',
-    'maryland_heights','creve_coeur','chesterfield','ballwin','florissant',
-    'st_charles','ofallon_mo','wentzville','mehlville'];
-  var streetDetail = areas.map(function(k) {
-    var d = STREET_DETAIL[k];
-    if (!d) return '';
-    var lines = [];
-    if (d.hail) lines.push(k.toUpperCase() + ' HAIL: ' + d.hail.join(' | '));
-    if (d.structural) lines.push(k.toUpperCase() + ' STRUCTURAL: ' + d.structural.join(' | '));
-    if (d.tornado) lines.push(k.toUpperCase() + ' TORNADO: ' + d.tornado.join(' | '));
-    return lines.join('\n');
-  }).filter(Boolean).join('\n');
+  // Build report summary
+  var reportSummary = reports.slice(0, 20).map(function(r) {
+    return '- ' + (r.type || r.label || '?').toUpperCase() + ' | ' + r.location + ' | ' + r.magnitude + ' | ' + r.detail;
+  }).join('\n') || 'No live reports — April 17-18 event data loaded.';
 
-  return [
-    'You are an emergency management assistant for the Jefferson County & St. Louis storm dashboard.',
-    'The April 17-18 2026 storm event is the primary event in the system.',
+  // Inject subdivision data for active zones only (keeps prompt focused)
+  var zoneSubdivisions = buildZoneSubdivisionContext(activeZones);
+
+  var lines = [
+    'You are an emergency management and storm damage assistant embedded in a live dashboard for the St. Louis metro area.',
+    'You cover four watch zones: Jefferson County (MOC099), St. Louis County (MOC189), St. Louis City (MOC510), St. Charles County (MOC183).',
     '',
-    'STORM METRICS:',
-    `Active alerts: ${m.warnings || 0} | Max hail: ${m.maxHail || '1.75"'} | Peak wind: ${m.peakWind || '80 mph'} | Outages: ${m.outages || '50K+'}`,
+    'CURRENT STORM METRICS:',
+    'Active alerts: ' + (m.warnings || 0) + ' | Max hail: ' + (m.maxHail || 'N/A') + ' | Peak wind: ' + (m.peakWind || 'N/A') + ' | Outages: ' + (m.outages || 'N/A'),
     '',
-    'NWS ALERTS:', alerts,
+    'ACTIVE NWS ALERTS:',
+    alertSummary,
     '',
-    'STORM REPORTS:', reports,
+    'STORM REPORTS ON MAP:',
+    reportSummary,
     '',
-    'STREET-LEVEL DETAIL (April 17-18 event):',
-    streetDetail,
+    'ACTIVE WATCH ZONES: ' + (activeZones.length ? activeZones.join(', ') : 'None active — April 17-18 2026 event data displayed'),
+    '',
+    'SUBDIVISION & STREET DETAIL FOR ACTIVE/RELEVANT ZONES:',
+    zoneSubdivisions,
     '',
     'INSTRUCTIONS:',
-    '- Always reference specific streets, subdivisions, and cross streets when asked about locations',
-    '- For hail questions, name the specific roads and neighborhoods affected',
-    '- For insurance questions, give actionable step-by-step guidance',
-    '- If asked about a specific subdivision or street not in your data, say you do not have confirmed reports for that exact location but give the nearest known affected area',
-    '- Keep answers concise but specific — bullet points for location lists',
-  ].join('\n');
+    '- Reference specific streets, subdivisions, and cross streets when answering location questions',
+    '- If a new storm is active, focus on the currently warned zones and their subdivisions',
+    '- If no live alerts, default to April 17-18 2026 event knowledge',
+    '- For insurance claims: document first, file promptly, RCV policy = full replacement for 1.75"+ hail',
+    '- Label plausible damage as "plausible based on storm path" vs confirmed reports',
+    '- Keep answers concise with bullet points for location lists',
+  ];
+  return lines.join('\n');
 }
+
+// Detect which geographic zones are in active alerts
+function detectActiveZones(alerts) {
+  var zones = [];
+  var zoneMap = {
+    'MOC099': 'Jefferson County',
+    'MOC189': 'St. Louis County',
+    'MOC510': 'St. Louis City',
+    'MOC183': 'St. Charles County',
+  };
+  var found = {};
+  alerts.forEach(function(a) {
+    var p = a.properties || {};
+    var area = (p.areaDesc || '') + ' ' + (p.description || '');
+    // Check for zone codes or county names
+    Object.keys(zoneMap).forEach(function(code) {
+      var name = zoneMap[code];
+      if (!found[code] && (area.includes(code) || area.toLowerCase().includes(name.toLowerCase()))) {
+        found[code] = true;
+        zones.push(name);
+      }
+    });
+  });
+  // If we have storm reports, infer zones from their locations
+  if (zones.length === 0 && _ctx.stormReports && _ctx.stormReports.length > 0) {
+    zones = ['Jefferson County', 'St. Louis County', 'St. Louis City', 'St. Charles County'];
+  }
+  return zones;
+}
+
+// Build subdivision context string for the active zones
+function buildZoneSubdivisionContext(zones) {
+  // Always include all zones for the API — Claude decides relevance
+  var all = [
+    ZONE_SUBDIVISIONS.jefferson_county,
+    ZONE_SUBDIVISIONS.stlouis_county,
+    ZONE_SUBDIVISIONS.stlouis_city,
+    ZONE_SUBDIVISIONS.stcharles_county,
+  ];
+  return all.join('\n\n');
+}
+
+// ── Zone subdivision database ─────────────────────────────────────────────────
+// Covers all four NWS watch zones with plausible residential areas by municipality
+
+var ZONE_SUBDIVISIONS = {
+
+  jefferson_county: [
+    'JEFFERSON COUNTY (MOC099) — Key municipalities and subdivisions:',
+    'ARNOLD: Fox Run (Jeffco Blvd), Richardson/Tenbrook Rd neighborhoods, Arnold Commons, Oakbrook Estates, Windsor Village, Windmill Hill',
+    'IMPERIAL: Carman Trails, Imperial Hills, Sandy Creek Estates, Lemay Ferry Village, Old Lemay Ferry Rd corridor',
+    'HILLSBORO: Clayton Husky/Klondike Rd corridor, Vail Rd subdivisions, Hillsboro city limits off Gravois Rd',
+    'FESTUS/CRYSTAL CITY: Truman Blvd corridor, Crystal City subdivisions, Gravois Bluffs shopping area, Crystal Highlands Golf Course area',
+    'HERCULANEUM/PEVELY: Joachim Ave / Hwy 61 corridor (Herculaneum), Delor Ave and Hwy Z subdivisions (Pevely) — Mississippi River corridor',
+    'DE SOTO: Vineland Rd / Main St corridor, residential neighborhoods — central Jefferson County county seat area',
+    'BARNHART: Hwy 61 / Barnhart Rd, Antonia Rd corridor — unincorporated, between Arnold and Festus',
+    'DE SOTO: residential areas off Vineland Rd and Main St',
+    'CEDAR HILL / CEDAR HILL LAKES: lakeside residential subdivisions, Cedar Hill estates',
+    'HOUSE SPRINGS / BYRNES MILL: rural residential on Osage Beach Rd, High Ridge area subdivisions',
+    'HIGH RIDGE: subdivisions off Gravois Rd and Fox Creek Rd — plausible outer swath damage',
+    'MEHLVILLE/OAKVILLE (NE Jefferson): Lemay Ferry Rd, Tesson Ferry Rd, Covington Manor Ln',
+  ].join('\n'),
+
+  stlouis_county: [
+    'ST. LOUIS COUNTY (MOC189) — Key municipalities and subdivisions:',
+    '',
+    'NORTH COUNTY:',
+    'BRIDGETON: Harmony Estates (St. Charles Rock Rd), DePaul Hills (Natural Bridge Rd), Northfield, St. James Estates (N. Lindbergh Blvd), Rolling Green Acres, Scotch Drive area',
+    'ST. ANN: Rock Road Terrace (St. Charles Rock Rd/Kingbee Pl), Ashby Rd/Fee Fee Rd neighborhood grid, Midland Blvd residential blocks',
+    'HAZELWOOD: South Pattonville subdivisions (Howdershell Rd), Hazelwood Acres (Lindbergh Blvd), Brotherton Ln/Taussig Rd grid',
+    'FLORISSANT: Charbonier Estates (Charbonier Rd), Wedgewood Hills (New Florissant Rd), Parker Rd/Cold Water Creek area, Larimore Rd subdivisions',
+    'FERGUSON: Tiffany/Suburbia area, Ferguson Ave/Florissant Rd corridor neighborhoods',
+    'JENNINGS: Jennings Station Rd corridor, North County subdivisions off W. Florissant',
+    '',
+    'WEST COUNTY:',
+    'MARYLAND HEIGHTS: Autumn Lakes (Dorsett Rd), McKelvey Rd subdivisions, Marine Ave/Schuetz Rd, Dorsett Ridge townhomes, Lackland Rd subdivisions',
+    'CREVE COEUR: Conway Meadows (Conway Rd/Olive Blvd), Conway Springs, Spoede Rd neighborhoods, New Ballas Rd subdivisions',
+    'CHESTERFIELD: Meadowbrook Farm/Clarkson Estates (589 homes, Baxter/Country Ridge Dr), Villages at Baxter Ridge (307 homes + condos, Baxter Rd), Clarkson Woods, Green Trails (Olive Blvd), Broadmoor, Baxter Lakes, Wild Horse Creek Rd area',
+    'BALLWIN: Claymont Woods/Claymont Lake Estates (Manchester Rd), Four Seasons (Clayton Rd), Manor Hill, Kiefer Creek/Holloway area',
+    'TOWN & COUNTRY: large-lot estates off Clayton Rd and Mason Rd — plausible tree and roof damage',
+    'LADUE: Warson Rd / Price Rd residential areas, Ladue Rd estates',
+    'WILDWOOD: Glencoe Rd, Manchester Rd subdivisions — outer swath fringe',
+    '',
+    'MID/SOUTH COUNTY:',
+    'KIRKWOOD: Geyer Rd / Kirkwood Rd residential, Woodlawn/Sherwood subdivisions, Adams Ave area',
+    'WEBSTER GROVES: Lockwood Ave corridor, Eden Ave neighborhoods, Rock Hill Rd subdivisions',
+    'CRESTWOOD: Watson Rd corridor, Sappington Rd neighborhoods, Crestwood Estates',
+    'AFFTON: Gravois Rd corridor, Weber Hill area, Mackenzie Rd residential blocks',
+    'MEHLVILLE/OAKVILLE: Lemay Ferry Rd, Tesson Ferry Rd, Covington Manor Ln (confirmed FOX 2 report), Oakville Manor',
+    'FENTON: Bowles Ave/Gravois Rd corridor, Georgetown Village area',
+  ].join('\n'),
+
+  stlouis_city: [
+    'ST. LOUIS CITY (MOC510) — 79 official neighborhoods, key areas by storm vulnerability:',
+    '',
+    'SOUTH CITY (dense brick rowhouses — hail damage to flat roofs, dormers, gutters common):',
+    'TOWER GROVE SOUTH: Arsenal St to Chippewa, Kingshighway to Grand — dense brick homes, Grand Blvd corridor',
+    'TOWER GROVE EAST: Tower Grove Ave, Magnolia Ave corridor',
+    'SOULARD: S. 7th-12th St grid, Soulard Market area, Lafayette Ave',
+    'BENTON PARK / BENTON PARK WEST: Jefferson Ave, Cherokee St corridor',
+    'CHEROKEE / GRAVOIS PARK: Cherokee St (E-W), Gravois Ave corridor',
+    'DUTCHTOWN: Meramec St, Tennessee Ave, Loughborough Ave grid',
+    'ST. LOUIS HILLS: Hampton Ave, Nottingham Ave — 1940s-50s brick bungalows',
+    'CARONDELET: S. Broadway, Virginia Ave, Blow St — riverfront industrial + residential',
+    'HOLLY HILLS / BOULEVARD HEIGHTS: Loughborough Ave, Holly Hills Blvd',
+    '',
+    'NORTH CITY:',
+    'HYDE PARK: N. 20th St, Blair Ave corridor',
+    'OLD NORTH ST. LOUIS: N. 14th-20th St grid, Cass Ave',
+    'THE VILLE / GREATER VILLE: Martin Luther King Dr corridor',
+    'FAIRGROUND PARK / HAMILTON HEIGHTS: Natural Bridge Ave, Grand Blvd north',
+    '',
+    'CENTRAL / MIDTOWN:',
+    'CENTRAL WEST END: Maryland Ave, Euclid Ave, Lindell Blvd — mixed commercial/residential',
+    'SHAW: Shaw Blvd, Flora Pl, botanical garden area',
+    'THE HILL: Southwest Ave, Marconi Ave, Kingshighway — Italian-American neighborhood, brick bungalows',
+    'FOREST PARK SOUTHEAST: Manchester Ave, Oakland Ave corridor',
+    '',
+    'Note: St. Louis City brick construction is generally hail-resistant for walls, but flat/low-slope roofs, gutters, HVAC units, skylights, and vehicles are vulnerable.',
+  ].join('\n'),
+
+  stcharles_county: [
+    'ST. CHARLES COUNTY (MOC183) — Key municipalities and subdivisions:',
+    "",
+    "O'FALLON: Winghaven (Bryan Rd/Winghaven Blvd), Piney Creek/Whitegate Manor (North O'Fallon), Sommerset Estates, Harvest subdivision (Fischer/Bryan Rd), Streets of Caledonia (Hwy 64/DD), Bryan Rd residential corridor",
+    "O'FALLON confirmed damage: West Terra Lane dealerships (~450 vehicles), St. Dominic HS, City Hall/OEM vehicles",
+    'WENTZVILLE: Pearce Blvd/Wentzville Pkwy corridor, Millstone subdivision, OBryan Rd/Graham Rd neighborhoods, Pitman Rd area',
+    'LAKE SAINT LOUIS: Lake St. Louis Blvd subdivisions, Troon/Heritage Landing area, Country Club of Missouri vicinity',
+    'ST. PETERS: Cave Springs Rd/Hwy 70 corridor, Mid Rivers Estates, Jungermann Rd neighborhoods, Spencer Creek area',
+    'ST. CHARLES CITY: Main St/First Capitol Dr (historic district), Zumbehl Rd residential areas, Boone Hills, Kingshighway/Bischoff Ave grid',
+    'COTTLEVILLE: Hwy N/Hwy O corridor, Cottleville Pkwy subdivisions — newer construction plausible hail damage',
+    'DARDENNE PRAIRIE: Mid Rivers Mall Dr area, Feise Rd/Bryan Rd neighborhoods, Inverness villas (newer construction)',
+    'WELDON SPRING: Hwy D/Hwy 94 corridor, Weldon Spring Heights area',
+    'FORISTELL / MOSCOW MILLS (Lincoln County fringe): rural residential, confirmed 85 mph wind gusts April 17',
+  ].join('\n'),
+};
+
 
 // ── API call ──────────────────────────────────────────────────────────────────
 
@@ -361,6 +499,20 @@ function demoResponse(msg) {
     return 'Confirmed structural damage by location:\n\n• **Arnold — Jeffco Blvd** (Hwy 141 to Plaza Dr): Commercial roof collapses, road closed\n• **Imperial — Old Lemay Ferry Rd**: Several home structural collapses — worst residential count in Jefferson County\n• **Hillsboro — Clayton Husky Rd / Klondike**: 8-9 structures confirmed, ~2-mile corridor\n• **Maryland Heights — Creve Coeur Soccer Park**: Roof blown off, walls collapsed (FOX 2)\n• **O\'Fallon — West Terra Lane**: ~450 vehicles at dealerships';
   }
 
+  // ── Southern Jefferson County municipalities ───────────────────────────────
+  if (q.includes('festus') || q.includes('crystal city')) {
+    return 'Festus / Crystal City (Jefferson County, MOC099) — plausible storm damage:\n\n• **Truman Blvd corridor** — main commercial and residential corridor, plausible hail and wind damage\n• **Festus residential neighborhoods** off Hwy 61 — ranch-style homes, plausible roof claims\n• **Crystal City subdivisions** off Truman Blvd — plausible shingle and gutter damage\n• **Crystal Highlands Golf Course area** — plausible tree and structure damage\n• **Gravois Bluffs** shopping area — commercial roof and vehicle damage\n\nFestus and Crystal City are twin cities in southern Jefferson County within watch zone MOC099.';
+  }
+  if (q.includes('herculaneum') || q.includes('pevely')) {
+    return 'Herculaneum / Pevely (Jefferson County, MOC099) — plausible storm damage:\n\n• **Herculaneum**: Joachim Ave / Hwy 61 corridor, residential neighborhoods off Rock Blvd\n• **Pevely**: Hwy 61 commercial corridor, Delor Ave residential areas, subdivisions off Hwy Z\n• Both cities are in the Mississippi River corridor — eastern Jefferson County\n• Plausible hail and wind damage consistent with storm track through Jefferson County\n\nBoth fall within Jefferson County watch zone MOC099.';
+  }
+  if (q.includes('de soto') || q.includes('desoto')) {
+    return 'De Soto (Jefferson County, MOC099) — plausible storm damage:\n\n• **Vineland Rd / Main St corridor** — older residential, plausible roof and gutter damage\n• **De Soto residential neighborhoods** — mix of older and newer construction\n• De Soto is in central Jefferson County, ~25 miles south of St. Louis\n• Plausible hail and wind damage during Jefferson County watch events\n\nFalls within Jefferson County watch zone MOC099. Hillsboro is the county seat, ~10 miles south of De Soto.';
+  }
+  if (q.includes('barnhart') || q.includes('cedar hill') || q.includes('house springs') || q.includes('high ridge') || q.includes('murphy') || q.includes('byrnes mill')) {
+    return 'Unincorporated Jefferson County communities — plausible storm damage:\n\n• **Barnhart**: Hwy 61 / Barnhart Rd area, Antonia Rd corridor — plausible roof and tree damage\n• **Cedar Hill / Cedar Hill Lakes**: Cedar Hill Rd subdivisions, lakeside residential\n• **House Springs**: House Springs Rd, Osage Beach Rd rural residential areas\n• **High Ridge**: Gravois Rd / Fox Creek Rd corridor, suburban subdivisions\n• **Murphy**: Largest unincorporated community in Jefferson County, Murphy Rd area\n• **Byrnes Mill**: Hwy W / Old Lemay Ferry Rd area near Arnold\n\nAll fall within Jefferson County watch zone MOC099.';
+  }
+
   if (q.includes('tornado')) {
     return 'NWS confirmed two EF1 tornadoes in the St. Louis area on April 17, 2026:\n\n• Both had winds of at least 90 mph, primarily tree damage\n• One EF0 confirmed near **I-64 / Clarkson Rd / Olive Blvd in Chesterfield** — 2-mile track\n• **NW St. Louis County** (Bridgeton/St. Ann) under Tornado Warning at 10:08 PM\n• 85 mph gusts near Moscow Mills — outbuildings and manufactured homes damaged\n• NWS survey completed April 20, 2026';
   }
@@ -377,7 +529,51 @@ function demoResponse(msg) {
     return 'April 17-18 storm coverage — confirmed + plausible detail by area:\n\n**Jefferson County:** Arnold (Jeffco Blvd, Fox Run), Imperial (Old Lemay Ferry, Carman Trails, Imperial Hills), Hillsboro (Clayton Husky/Klondike)\n**NW St. Louis Co.:** Bridgeton (St. Charles Rock Rd, Harmony Estates, DePaul Hills), St. Ann (Fee Fee Rd, Rock Road Terrace), Hazelwood (Lindbergh Blvd), Maryland Heights (Soccer Park, Dorsett/Page), Florissant\n**West St. Louis Co.:** Creve Coeur (Olive Blvd, Conway Meadows), Chesterfield (EF0 tornado, Meadowbrook Farm/Clarkson Estates, Baxter Ridge), Ballwin (Manchester Rd)\n**St. Charles Co.:** O\'Fallon (West Terra Ln, Winghaven, Piney Creek), Wentzville, St. Peters, St. Charles, Lake St. Louis\n\nAsk about any city for street-level and subdivision detail.';
   }
 
-  return 'I have street-level and subdivision detail for these areas from the April 17-18 storm:\n\n**Jefferson Co.:** Arnold, Imperial, Hillsboro\n**NW St. Louis Co.:** Bridgeton, St. Ann, Hazelwood, Maryland Heights, Florissant\n**West St. Louis Co.:** Creve Coeur, Chesterfield, Ballwin\n**St. Charles Co.:** O\'Fallon, Wentzville, St. Charles, St. Peters\n\nAsk about a specific city, street, or subdivision name (e.g. "Harmony Estates", "Meadowbrook Farm", "Winghaven", "Carman Trails").';
+  // ── St. Louis County municipality queries ─────────────────────────────────
+  if (q.includes('kirkwood')) {
+    return 'Kirkwood (St. Louis County, MOC189) — plausible storm damage:\n\n• **Geyer Rd / Kirkwood Rd** residential areas — established brick homes, plausible roof/gutter damage\n• **Woodlawn / Sherwood** subdivision areas — plausible hail damage\n• **Adams Ave / Taylor Ave** grid — older housing stock, vulnerable gutters and dormers\n• **Kirkwood Park area** — mature trees, significant tree damage plausible during 60+ mph events\n\nFor active alerts in this zone check the NWS Alerts tab.';
+  }
+  if (q.includes('webster groves') || q.includes('webster grove')) {
+    return 'Webster Groves (St. Louis County, MOC189) — plausible storm damage:\n\n• **Lockwood Ave corridor** — tree-lined streets, major tree and roof damage plausible\n• **Eden Ave / Elm Ave** neighborhoods — dense residential, hail damage to older roofs\n• **Rock Hill Rd subdivisions** — plausible shingle and gutter damage\n• Webster Groves is "Tree City USA" — significant tree damage expected during 60+ mph wind events\n\nFalls within St. Louis County watch zone (MOC189).';
+  }
+  if (q.includes('crestwood') || q.includes('affton')) {
+    return 'Crestwood / Affton (St. Louis County, MOC189) — plausible storm damage:\n\n• **Watson Rd corridor** (Crestwood) — commercial and residential hail damage\n• **Sappington Rd** neighborhoods — ranch-style homes, plausible roof claims\n• **Gravois Rd / Weber Hill** (Affton) — dense residential, plausible hail and tree damage\n• **Mackenzie Rd** blocks — 1950s-60s construction, plausible shingle damage';
+  }
+  if (q.includes('clayton') || q.includes('university city') || q.includes('u city') || q.includes('ladue')) {
+    return 'Clayton / University City / Ladue (St. Louis County, MOC189) — plausible storm damage:\n\n• **Clayton CBD** — commercial flat roofs vulnerable to hail; HVAC units on rooftops\n• **Shaw Park area** (Clayton) — large mature trees, plausible damage during severe events\n• **Delmar Blvd / Olive Blvd** (University City) — mixed residential/commercial\n• **Warson Rd / Price Rd** (Ladue) — large-lot estates with mature trees, plausible roof and tree damage\n\nAll fall within St. Louis County watch zone (MOC189).';
+  }
+  if (q.includes('ferguson') || q.includes('jennings') || q.includes('pine lawn') || q.includes('bellefontaine')) {
+    return 'North St. Louis County (MOC189) — plausible storm damage:\n\n• **Ferguson**: Tiffany/Suburbia area, Ferguson Ave/Florissant Rd corridor neighborhoods\n• **Jennings**: Jennings Station Rd, W. Florissant Ave subdivisions\n• **Pine Lawn / Vinita Park**: dense older residential, plausible hail damage\n• **Bellefontaine Neighbors**: Natural Bridge Rd corridor, subdivisions off Bellefontaine Rd\n\nNorth County took 70-80 mph wind gusts during the April 17 event.';
+  }
+  if (q.includes('fenton') || q.includes('sunset hills') || q.includes('green park') || q.includes('south county')) {
+    return 'South St. Louis County (MOC189) — plausible storm damage:\n\n• **Fenton**: Bowles Ave/Gravois Rd, Georgetown Village area\n• **Sunset Hills**: Gravois Rd/Lindbergh Blvd, residential subdivisions\n• **Green Park**: Tesson Ferry Rd corridor\n• **Mehlville/Oakville**: Lemay Ferry Rd, Covington Manor Ln (FOX 2 confirmed tree damage), Tesson Ferry Rd\n\nFalls within St. Louis County watch zone (MOC189).';
+  }
+
+  // ── St. Louis City queries ─────────────────────────────────────────────────
+  if (q.includes('soulard') || q.includes('benton park') || q.includes('tower grove') || q.includes('cherokee st') || q.includes('dutchtown') || q.includes('the hill') || q.includes('carondelet') || q.includes('st. louis hills') || q.includes('central west end') || q.includes('shaw ') || q.includes('lafayette square') || q.includes('dogtown')) {
+    var nbhd = q.includes('soulard') ? 'Soulard (S. 7th-12th St, Lafayette Ave grid)' :
+               q.includes('tower grove') ? 'Tower Grove South (Arsenal to Chippewa, Kingshighway to Grand)' :
+               q.includes('benton park') ? 'Benton Park / Benton Park West (Jefferson Ave, Cherokee St)' :
+               q.includes('dutchtown') ? 'Dutchtown (Meramec St, Tennessee Ave, Loughborough Ave)' :
+               q.includes('the hill') ? 'The Hill (Southwest Ave, Marconi Ave, Kingshighway)' :
+               q.includes('carondelet') ? 'Carondelet (S. Broadway, Virginia Ave, Blow St)' :
+               q.includes('st. louis hills') ? 'St. Louis Hills (Hampton Ave, Nottingham Ave)' :
+               q.includes('central west end') ? 'Central West End (Maryland Ave, Euclid Ave, Lindell Blvd)' :
+               q.includes('lafayette square') ? 'Lafayette Square (Park Ave, Mississippi Ave)' :
+               q.includes('dogtown') ? 'Dogtown (Manchester Ave, Oakland Ave, Tamm Ave)' :
+               'Shaw (Shaw Blvd, Flora Pl)';
+    return nbhd + ' — St. Louis City (MOC510)\n\nDuring severe storm events in St. Louis City:\n\n• Brick rowhouse **walls** are hail-resistant\n• **Gutters and downspouts** — primary hail damage claim\n• **Flat/low-slope roofs** — vulnerable to hail puncture and pooling\n• **HVAC units** on flat roofs — common hail damage claim\n• **Skylights** in renovated buildings — frequently damaged by 1.0"+ hail\n• **Vehicles** parked on street — file comprehensive auto, not collision\n• **Trees** — dense urban canopy, major tree-on-structure risk at 60+ mph\n\nFor active alerts check the NWS Alerts tab.';
+  }
+  if (q.includes('st. louis city') || q.includes('stl city') || (q.includes('city of st. louis') && !q.includes('county'))) {
+    return 'St. Louis City (MOC510) storm damage guide:\n\n**South City** (brick rowhouses, flat roofs):\n• Tower Grove South, Soulard, Benton Park, Cherokee/Gravois Park, Dutchtown, St. Louis Hills, The Hill, Carondelet\n\n**Central / Midtown:**\n• Central West End, Shaw, Lafayette Square, Dogtown, Forest Park Southeast\n\n**North City:**\n• Hyde Park, Old North St. Louis, The Ville, Fairground Park\n\n**What to watch for in the City:**\n• Flat roofs and gutters take the most hail damage\n• HVAC units on commercial rooftops are highly vulnerable\n• Mature street trees pose structural risk during wind events\n• All 79 city neighborhoods fall within watch zone MOC510\n\nAsk about a specific neighborhood for detailed guidance.';
+  }
+
+  // ── Zone / coverage queries ────────────────────────────────────────────────
+  if (q.includes('zone') || q.includes('watch zone') || q.includes('what counties') || q.includes('coverage') || q.includes('which areas')) {
+    return 'The dashboard monitors four NWS watch zones:\n\n• **MOC099 — Jefferson County**: Arnold, Imperial, Hillsboro (county seat), De Soto, Festus, Crystal City, Herculaneum, Pevely, Barnhart, Cedar Hill, High Ridge, House Springs, Byrnes Mill, Murphy\n• **MOC189 — St. Louis County**: 88+ municipalities — Bridgeton, St. Ann, Hazelwood, Maryland Heights, Florissant, Ferguson, Kirkwood, Webster Groves, Chesterfield, Ballwin, Creve Coeur, Mehlville, Oakville and more\n• **MOC510 — St. Louis City**: All 79 city neighborhoods — Soulard, Tower Grove, The Hill, Dutchtown, Central West End, Cherokee, Carondelet and more\n• **MOC183 — St. Charles County**: O\'Fallon, Wentzville, St. Peters, Lake St. Louis, St. Charles City, Cottleville, Dardenne Prairie\n\nFor a future storm event, the chatbot uses live NWS alert data to focus answers on the actively warned zones. Ask about any city or neighborhood.';
+  }
+
+  return 'I have subdivision and street-level detail for all four NWS watch zones:\n\n**Jefferson Co. (MOC099):** Arnold, Imperial, Hillsboro, De Soto, Festus, Crystal City, Herculaneum, Pevely, Barnhart, Cedar Hill, High Ridge, House Springs, Byrnes Mill\n**St. Louis Co. (MOC189):** Bridgeton, St. Ann, Hazelwood, Maryland Heights, Florissant, Kirkwood, Webster Groves, Chesterfield, Ballwin, Creve Coeur, Mehlville, Ferguson\n**St. Louis City (MOC510):** Soulard, Tower Grove, The Hill, Dutchtown, St. Louis Hills, Central West End, Carondelet, Shaw\n**St. Charles Co. (MOC183):** O\'Fallon (Winghaven, Piney Creek), Wentzville, St. Peters, St. Charles City, Cottleville\n\nFor a **future storm**: the chatbot will use live alert data to focus on affected zones. Ask about any city, neighborhood, or subdivision.';
 }
 
 
