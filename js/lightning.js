@@ -1,364 +1,248 @@
 // lightning.js — Live lightning strike overlay via Blitzortung.org
 //
-// Blitzortung publishes real-time strike data through a public WebSocket feed.
-// Each strike appears as a pulsing marker on the Leaflet map and fades out
-// after a configurable TTL (default 8 minutes).
-//
-// Attribution required by Blitzortung terms:
-//   "Lightning data: Blitzortung.org / CC BY-SA 4.0"
-//
-// Blitzortung WebSocket servers are regional — we connect to the North America
-// server (ws1.blitzortung.org through ws8.blitzortung.org, port 443/wss).
-// They round-robin; if one fails we try the next.
-
-// ── Configuration ─────────────────────────────────────────────────────────────
+// Connects to Blitzortung's public WebSocket feed (no key required).
+// Each strike plots as a pulsing yellow marker that fades over 8 minutes.
+// Attribution: Blitzortung.org / CC BY-SA 4.0 (required by their terms).
 
 const LX_CONFIG = {
-  // Blitzortung NA servers (wss, port 443)
   servers: [
     'wss://ws1.blitzortung.org:443/',
     'wss://ws2.blitzortung.org:443/',
     'wss://ws3.blitzortung.org:443/',
     'wss://ws4.blitzortung.org:443/',
+    'wss://ws5.blitzortung.org:443/',
+    'wss://ws6.blitzortung.org:443/',
+    'wss://ws7.blitzortung.org:443/',
+    'wss://ws8.blitzortung.org:443/',
   ],
-
-  // Only plot strikes inside this bounding box (same as SPC region filter)
-  bounds: {
-    latMin: 36.0, latMax: 41.0,
-    lonMin: -95.0, lonMax: -87.0,
-  },
-
-  // How long a strike marker stays visible (ms) — 8 minutes
-  strikeTTL: 8 * 60 * 1000,
-
-  // How often to sweep expired markers off the map (ms)
-  sweepInterval: 30 * 1000,
-
-  // Max strikes to keep in memory at once (oldest drop off)
-  maxStrikes: 500,
-
-  // Reconnect delay after disconnect (ms)
-  reconnectDelay: 5000,
+  // Region filter — wider box to catch incoming storms
+  bounds: { latMin: 35.5, latMax: 41.5, lonMin: -96.0, lonMax: -87.0 },
+  strikeTTL:       8 * 60 * 1000,  // 8 minutes
+  sweepInterval:   30 * 1000,       // sweep every 30s
+  maxStrikes:      600,
+  reconnectDelay:  4000,
 };
 
 // ── State ─────────────────────────────────────────────────────────────────────
 
-let _map          = null;
-let _ws           = null;
-let _serverIndex  = 0;
-let _active       = false;
-let _visible      = false;
-let _sweepTimer   = null;
-let _reconnTimer  = null;
-let _strikes      = [];      // { id, lat, lon, time, marker }
+let _map            = null;
+let _ws             = null;
+let _serverIdx      = 0;
+let _active         = false;
+let _visible        = false;
+let _sweepTimer     = null;
+let _reconnTimer    = null;
+let _strikes        = [];
 let _lightningLayer = null;
-let _statsEl      = null;    // optional DOM element showing live count
+let _strikeCount    = 0;
 
-// Strike counter for session
-let _strikeCount  = 0;
+// ── WebSocket ─────────────────────────────────────────────────────────────────
 
-// ── WebSocket connection ──────────────────────────────────────────────────────
+function _connect() {
+  if (_ws) { try { _ws.onclose = null; _ws.close(); } catch(e){} }
 
-function connect() {
-  if (_ws) {
-    _ws.onclose = null;   // suppress reconnect from old socket
-    _ws.close();
-  }
-
-  const url = LX_CONFIG.servers[_serverIndex % LX_CONFIG.servers.length];
+  const url = LX_CONFIG.servers[_serverIdx % LX_CONFIG.servers.length];
   console.log(`[Lightning] Connecting to ${url}`);
+  _updateStatusEl('⚡ Connecting…');
 
   try {
     _ws = new WebSocket(url);
-  } catch (e) {
-    console.warn('[Lightning] WebSocket constructor failed:', e.message);
-    scheduleReconnect();
+  } catch(e) {
+    console.warn('[Lightning] WS constructor failed:', e.message);
+    _scheduleReconnect();
     return;
   }
 
   _ws.onopen = () => {
-    console.log('[Lightning] Connected');
-    updateStatusEl('⚡ Lightning live');
-    // Blitzortung expects a JSON subscription message
-    _ws.send(JSON.stringify({ west: -180, east: 180, north: 90, south: -90 }));
+    console.log('[Lightning] Connected to', url);
+    _updateStatusEl('⚡ Live');
+    // Blitzortung subscription message — subscribe to global feed
+    try { _ws.send(JSON.stringify({ west: -180, east: 180, north: 90, south: -90 })); }
+    catch(e) { console.warn('[Lightning] send failed:', e); }
   };
 
-  _ws.onmessage = (evt) => {
-    try {
-      handleStrikeMessage(evt.data);
-    } catch (e) {
-      // Malformed frame — ignore
-    }
+  _ws.onmessage = evt => {
+    try { _handleMessage(evt.data); }
+    catch(e) { /* ignore malformed frame */ }
   };
 
-  _ws.onerror = () => {
-    console.warn('[Lightning] WebSocket error — will reconnect');
-  };
+  _ws.onerror = () => console.warn('[Lightning] WebSocket error');
 
   _ws.onclose = () => {
-    console.warn('[Lightning] Disconnected');
-    updateStatusEl('⚡ Reconnecting…');
-    if (_active) {
-      _serverIndex++;   // try next server on reconnect
-      scheduleReconnect();
-    }
+    console.warn('[Lightning] Disconnected from', url);
+    _updateStatusEl('⚡ Reconnecting…');
+    if (_active) { _serverIdx++; _scheduleReconnect(); }
   };
 }
 
-function scheduleReconnect() {
+function _scheduleReconnect() {
   if (_reconnTimer) return;
-  _reconnTimer = setTimeout(() => {
-    _reconnTimer = null;
-    if (_active) connect();
-  }, LX_CONFIG.reconnectDelay);
+  _reconnTimer = setTimeout(() => { _reconnTimer = null; if (_active) _connect(); }, LX_CONFIG.reconnectDelay);
 }
 
 // ── Message parsing ───────────────────────────────────────────────────────────
 
-function handleStrikeMessage(raw) {
-  // Blitzortung sends either a raw JSON object or a base64-encoded payload
+function _handleMessage(raw) {
   let data;
-  try {
-    data = JSON.parse(raw);
-  } catch {
+  try { data = JSON.parse(raw); } catch { return; }
+
+  // Batch format: { sig: [[lat,lon], ...] }
+  if (Array.isArray(data.sig)) {
+    data.sig.forEach(s => {
+      const lat = _norm(s[0]), lon = _norm(s[1]);
+      if (lat !== null && lon !== null) _plot({ lat, lon });
+    });
     return;
   }
 
-  // Format A: { time, lat, lon, ... }  (newer servers)
-  // Format B: { time, lal, lon, ... }  (some servers use "lal" for lat)
-  // Format C: { time, sig: [ [lat, lon], ... ] }  (batch, rare)
-  // Coordinates are in integer microdegrees (divide by 1e6) or float degrees
-
-  const strikes = extractStrikes(data);
-  strikes.forEach(plotStrike);
-}
-
-function extractStrikes(data) {
-  const results = [];
-
-  if (Array.isArray(data.sig)) {
-    // Batch format
-    data.sig.forEach(s => {
-      const lat = normCoord(s[0]);
-      const lon = normCoord(s[1]);
-      if (lat !== null) results.push({ lat, lon, time: Date.now() });
-    });
-    return results;
-  }
-
-  // Single-strike format
+  // Single strike format
   const rawLat = data.lat ?? data.lal ?? data.y ?? null;
   const rawLon = data.lon ?? data.x ?? null;
-  if (rawLat === null || rawLon === null) return results;
+  if (rawLat === null || rawLon === null) return;
 
-  const lat = normCoord(rawLat);
-  const lon = normCoord(rawLon);
-  if (lat !== null) results.push({ lat, lon, time: data.time ? data.time / 1e9 * 1000 : Date.now() });
-  return results;
+  const lat = _norm(rawLat), lon = _norm(rawLon);
+  if (lat !== null && lon !== null) _plot({ lat, lon });
 }
 
-// Blitzortung encodes coords as integer microdegrees (1234567 = 1.234567°)
-// but sometimes sends floats directly. Detect by magnitude.
-function normCoord(v) {
+// Blitzortung sometimes sends microdegrees (integer > 1000), sometimes float degrees
+function _norm(v) {
   if (v === null || v === undefined) return null;
   const n = Number(v);
   if (isNaN(n)) return null;
-  // If absolute value > 1000, it's microdegrees
   return Math.abs(n) > 1000 ? n / 1e6 : n;
 }
 
 // ── Strike plotting ───────────────────────────────────────────────────────────
 
-function plotStrike(strike) {
+function _plot(strike) {
   const { lat, lon } = strike;
   const b = LX_CONFIG.bounds;
-
-  // Filter to our region
   if (lat < b.latMin || lat > b.latMax) return;
   if (lon < b.lonMin || lon > b.lonMax) return;
 
   _strikeCount++;
-
   if (!_map || !_lightningLayer) return;
 
-  // Create the strike marker — a small pulsing circle icon
-  const icon = makeLightningIcon();
   const marker = L.marker([lat, lon], {
-    icon,
-    zIndexOffset: 800,
-    interactive: false,   // don't intercept map clicks
+    icon: L.divIcon({
+      className: '',
+      html: '<div class="lightning-strike"></div>',
+      iconSize: [12, 12],
+      iconAnchor: [6, 6],
+    }),
+    zIndexOffset: 900,
+    interactive: false,
   });
 
   if (_visible) marker.addTo(_lightningLayer);
 
-  const entry = {
-    id: `lx-${Date.now()}-${Math.random()}`,
-    lat, lon,
-    time: Date.now(),
-    marker,
-  };
-  _strikes.push(entry);
+  _strikes.push({ lat, lon, time: Date.now(), marker });
 
-  // Trim oldest if over limit
+  // Trim oldest over cap
   if (_strikes.length > LX_CONFIG.maxStrikes) {
-    const oldest = _strikes.shift();
-    if (oldest.marker && _lightningLayer.hasLayer(oldest.marker)) {
-      _lightningLayer.removeLayer(oldest.marker);
-    }
+    const old = _strikes.shift();
+    if (old.marker && _lightningLayer.hasLayer(old.marker)) _lightningLayer.removeLayer(old.marker);
   }
 
-  updateStatsEl();
+  _updateStatsEl();
 }
 
-function makeLightningIcon() {
-  return L.divIcon({
-    className: '',
-    html: `<div class="lightning-strike"></div>`,
-    iconSize: [10, 10],
-    iconAnchor: [5, 5],
-  });
-}
+// ── Sweep expired markers ─────────────────────────────────────────────────────
 
-// ── Expiry sweep ──────────────────────────────────────────────────────────────
-
-function sweepExpired() {
+function _sweep() {
   const now = Date.now();
   const keep = [];
-
   _strikes.forEach(s => {
     const age = now - s.time;
     if (age > LX_CONFIG.strikeTTL) {
-      // Fade out then remove
-      if (s.marker) {
-        const el = s.marker.getElement();
-        if (el) el.style.opacity = '0';
-        setTimeout(() => {
-          if (_lightningLayer && _lightningLayer.hasLayer(s.marker)) {
-            _lightningLayer.removeLayer(s.marker);
-          }
-        }, 600);
-      }
+      // Fade then remove
+      const el = s.marker?.getElement?.();
+      if (el) el.style.opacity = '0';
+      setTimeout(() => {
+        if (_lightningLayer && _lightningLayer.hasLayer(s.marker)) _lightningLayer.removeLayer(s.marker);
+      }, 500);
     } else {
-      // Update opacity based on age (full → faded over TTL)
-      const opacity = Math.max(0.15, 1 - age / LX_CONFIG.strikeTTL);
-      if (s.marker) {
-        const el = s.marker.getElement();
-        if (el) el.style.opacity = String(opacity);
-      }
+      // Fade by age
+      const el = s.marker?.getElement?.();
+      if (el) el.style.opacity = String(Math.max(0.15, 1 - age / LX_CONFIG.strikeTTL));
       keep.push(s);
     }
   });
-
   _strikes = keep;
-  updateStatsEl();
+  _updateStatsEl();
 }
 
 // ── Public API ────────────────────────────────────────────────────────────────
 
-/**
- * Initialize the lightning module.
- * @param {L.Map} leafletMap
- */
 function initLightning(leafletMap) {
   _map = leafletMap;
   _lightningLayer = L.layerGroup();
-  _statsEl = document.getElementById('lightning-count');
 }
 
-/**
- * Start the WebSocket feed and sweep timer.
- */
 function startLightning() {
   if (_active) return;
+  if (!_map) { console.warn('[Lightning] initLightning() must be called first'); return; }
+
   _active = true;
   _visible = true;
   _strikeCount = 0;
 
-  if (!_lightningLayer) {
-    console.warn('[Lightning] initLightning() must be called first');
-    return;
-  }
-
   _lightningLayer.addTo(_map);
-  connect();
-
-  _sweepTimer = setInterval(sweepExpired, LX_CONFIG.sweepInterval);
-  _updateLightningBtn(true);
+  _connect();
+  _sweepTimer = setInterval(_sweep, LX_CONFIG.sweepInterval);
+  _updateBtn(true);
   console.log('[Lightning] Started');
 }
 
-/**
- * Stop the feed, clear markers, disconnect WebSocket.
- */
 function stopLightning() {
   _active = false;
   _visible = false;
 
-  if (_ws) { _ws.onclose = null; _ws.close(); _ws = null; }
+  if (_ws) { try { _ws.onclose = null; _ws.close(); } catch(e){} _ws = null; }
   if (_sweepTimer) { clearInterval(_sweepTimer); _sweepTimer = null; }
   if (_reconnTimer) { clearTimeout(_reconnTimer); _reconnTimer = null; }
 
-  if (_lightningLayer && _map) {
+  if (_lightningLayer) {
     _lightningLayer.clearLayers();
-    _map.removeLayer(_lightningLayer);
+    if (_map && _map.hasLayer(_lightningLayer)) _map.removeLayer(_lightningLayer);
   }
 
   _strikes = [];
-  _updateLightningBtn(false);
-  updateStatusEl('');
-  updateStatsEl();
+  _updateBtn(false);
+  _updateStatusEl('');
+  _updateStatsEl();
   console.log('[Lightning] Stopped');
 }
 
-/**
- * Toggle lightning layer on/off.
- */
+// Sync (non-async) toggle — safe for onclick handlers
 function toggleLightning() {
   if (_active) stopLightning();
   else startLightning();
   return _active;
 }
 
-/**
- * Show/hide the layer without disconnecting the feed.
- */
-function setLightningVisible(visible) {
-  _visible = visible;
-  if (!_map || !_lightningLayer) return;
-  if (visible) {
-    if (!_map.hasLayer(_lightningLayer)) _lightningLayer.addTo(_map);
-  } else {
-    if (_map.hasLayer(_lightningLayer)) _map.removeLayer(_lightningLayer);
-  }
-}
-
 function isLightningActive() { return _active; }
-
-function getLightningStats() {
-  return { session: _strikeCount, visible: _strikes.length };
-}
 
 // ── UI helpers ────────────────────────────────────────────────────────────────
 
-function _updateLightningBtn(active) {
+function _updateBtn(active) {
   const btn = document.getElementById('lightning-toggle-btn');
-  if (btn) {
-    btn.classList.toggle('active', active);
-    btn.textContent = active ? '⚡ Lightning ON' : '⚡ Lightning';
-  }
+  if (!btn) return;
+  btn.classList.toggle('active', active);
+  btn.textContent = active ? '⚡ Lightning ON' : '⚡ Lightning';
 }
 
-function updateStatusEl(msg) {
+function _updateStatusEl(msg) {
   const el = document.getElementById('lightning-status');
   if (el) el.textContent = msg;
 }
 
-function updateStatsEl() {
-  if (_statsEl) {
-    const n = _strikes.length;
-    _statsEl.textContent = n > 0 ? `${n} strike${n !== 1 ? 's' : ''}` : '';
-    _statsEl.style.display = n > 0 ? 'inline-block' : 'none';
-  }
+function _updateStatsEl() {
+  const el = document.getElementById('lightning-count');
+  if (!el) return;
+  const n = _strikes.length;
+  el.textContent = n > 0 ? `${n} strike${n !== 1 ? 's' : ''}` : '';
+  el.style.display = n > 0 ? 'inline-block' : 'none';
 }
 
 window.LightningModule = {
@@ -366,7 +250,5 @@ window.LightningModule = {
   startLightning,
   stopLightning,
   toggleLightning,
-  setLightningVisible,
   isLightningActive,
-  getLightningStats,
 };

@@ -1,6 +1,4 @@
 // app.js — Main application controller
-// Modules: AlertsModule, MapModule, ClaudeModule, SPCModule,
-//          RadarModule, LightningModule, ArchiveModule, ChatModule
 
 let state = {
   alerts: [],
@@ -13,14 +11,10 @@ let state = {
   metrics: { warnings: 0, reports: 0, maxHail: '1.75"', peakWind: '80 mph', outages: '50K+' },
 };
 
-const A   = window.AlertsModule;
-const M   = window.MapModule;
-const C   = window.ClaudeModule;
-const SPC = window.SPCModule;
-const R   = window.RadarModule;
-const LX  = window.LightningModule;
-const ARC = window.ArchiveModule;
-const CH  = window.ChatModule;
+// ── Lazy module accessors ─────────────────────────────────────────────────────
+// Modules are assigned at DOMContentLoaded, not at parse time, so they're
+// guaranteed to exist when init() runs.
+let A, M, C, SPC, R, LX, ARC, CH;
 
 const CFG = window.CONFIG || {
   CLAUDE_API_KEY: 'YOUR_ANTHROPIC_API_KEY_HERE',
@@ -34,28 +28,45 @@ const CFG = window.CONFIG || {
 // ── Init ──────────────────────────────────────────────────────────────────────
 
 async function init() {
-  const leafletMap = M.initMap(CFG.MAP_CENTER, CFG.MAP_ZOOM);
+  // Grab all modules — guaranteed to exist at DOMContentLoaded
+  A   = window.AlertsModule;
+  M   = window.MapModule;
+  C   = window.ClaudeModule;
+  SPC = window.SPCModule;
+  R   = window.RadarModule;
+  LX  = window.LightningModule;
+  ARC = window.ArchiveModule;
+  CH  = window.ChatModule;
 
-  // Init radar and lightning with the Leaflet map instance
+  // Init map and pass the returned Leaflet instance directly to radar + lightning
+  const leafletMap = M.initMap(CFG.MAP_CENTER, CFG.MAP_ZOOM);
   R.initRadar(leafletMap);
   LX.initLightning(leafletMap);
 
+  // Draw base layers
   M.drawHailSwath();
+
+  // Plot all April 17-18 storm markers
   A.STORM_REPORTS.forEach(r => M.addStormMarker(r, handleClaudeRequest));
 
+  // Load NWS alerts
   await loadAlerts();
+
+  // Render sidebar content
   renderReports();
   updateMetrics();
 
-  // Seed the April 17–18 archive if this is the first run
+  // Seed April 17-18 archive entry on first run
   ARC.seedAprilEvent(A.STORM_REPORTS, A.FALLBACK_ALERTS);
 
-  // Start live feeds
+  // Start SPC live feed polling
   SPC.startSPCPolling(onNewSPCReports, CFG.SPC_POLL_INTERVAL);
+
+  // Start NWS refresh timer
   state.refreshTimer = setInterval(loadAlerts, CFG.REFRESH_INTERVAL);
 
-  // Init chat
-  CH.initChat(CFG.CLAUDE_API_KEY, 'chat-panel');
+  // Init chat — panel id is 'panel-chat'
+  CH.initChat(CFG.CLAUDE_API_KEY, 'panel-chat');
   CH.appendWelcomeMessage();
   syncChatContext();
 
@@ -88,7 +99,7 @@ async function loadAlerts() {
 // ── SPC Live Reports ──────────────────────────────────────────────────────────
 
 function onNewSPCReports(reports) {
-  console.log(`[SPC] ${reports.length} new report(s)`);
+  console.log(`[SPC] ${reports.length} new report(s) in region`);
   state.spcReports = [...state.spcReports, ...reports];
   state.metrics.reports = A.STORM_REPORTS.length + state.spcReports.length;
 
@@ -114,23 +125,25 @@ function renderSPCBadge(count) {
   if (el) { el.textContent = `${count} SPC live`; el.style.display = count > 0 ? 'inline-block' : 'none'; }
 }
 
-// ── Radar controls ────────────────────────────────────────────────────────────
+// ── Radar ─────────────────────────────────────────────────────────────────────
+// Note: onclick handlers can't await, so we call .then() or just fire-and-forget.
+// The async functions handle their own state internally.
 
-async function toggleRadar() {
-  await R.toggleRadar();
+function toggleRadar() {
+  R.toggleRadar();
 }
 
-async function setRadarSource(source, btn) {
+function setRadarSource(source, btn) {
   document.querySelectorAll('[data-radar-source]').forEach(b => b.classList.remove('active'));
   if (btn) btn.classList.add('active');
-  await R.setRadarSource(source);
+  R.setRadarSource(source);
 }
 
-async function toggleAnimation() {
-  await R.toggleAnimation();
+function toggleAnimation() {
+  R.toggleAnimation();
 }
 
-// ── Lightning controls ────────────────────────────────────────────────────────
+// ── Lightning ─────────────────────────────────────────────────────────────────
 
 function toggleLightning() {
   LX.toggleLightning();
@@ -188,10 +201,13 @@ function loadArchivedEvent(ev) {
 
 function renderAlerts() {
   const container = document.getElementById('alerts-list');
+  if (!container) return;
+
   if (!state.alerts.length) {
     container.innerHTML = `<div class="empty-state"><div class="icon">✓</div>No active alerts for watch zones</div>`;
     return;
   }
+
   container.innerHTML = state.alerts.map(f => {
     const p = f.properties;
     const cls = A.getEventClass(p.event);
@@ -204,6 +220,7 @@ function renderAlerts() {
         <div class="alert-time">Expires: ${A.formatAlertTime(p.expires)}</div>
       </div>`;
   }).join('');
+
   if (!state.liveAlerts) {
     container.innerHTML += `<div style="padding:8px 16px;font-size:11px;color:#94a3b8;border-top:1px solid #f1f5f9">
       Showing April 17–18 2026 event data · NWS API offline or no active alerts
@@ -213,6 +230,7 @@ function renderAlerts() {
 
 function renderReports() {
   const container = document.getElementById('reports-list');
+  if (!container) return;
   container.innerHTML = A.STORM_REPORTS.map(r => `
     <div class="report-item" onclick="selectReport('${r.id}')">
       <span class="report-badge ${r.badge}">${r.label}</span>
@@ -225,18 +243,20 @@ function renderReports() {
 }
 
 function updateMetrics() {
-  document.getElementById('m-warnings').textContent = state.metrics.warnings;
-  document.getElementById('m-reports').textContent = A.STORM_REPORTS.length + state.spcReports.length;
-  document.getElementById('m-hail').textContent = state.metrics.maxHail;
-  document.getElementById('m-wind').textContent = state.metrics.peakWind;
-  document.getElementById('m-outages').textContent = state.metrics.outages || '50K+';
+  const set = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
+  set('m-warnings', state.metrics.warnings);
+  set('m-reports',  A.STORM_REPORTS.length + state.spcReports.length);
+  set('m-hail',     state.metrics.maxHail);
+  set('m-wind',     state.metrics.peakWind);
+  set('m-outages',  state.metrics.outages || '50K+');
 }
 
 function updateStatusBadge(live) {
-  const dot = document.querySelector('.pulse-dot');
+  const dot   = document.querySelector('.pulse-dot');
   const label = document.getElementById('status-label');
+  if (!dot || !label) return;
   if (live) { dot.className = 'pulse-dot'; label.textContent = 'Live NWS data'; }
-  else { dot.className = 'pulse-dot amber'; label.textContent = 'Event data (Apr 17–18)'; }
+  else      { dot.className = 'pulse-dot amber'; label.textContent = 'Event data (Apr 17–18)'; }
 }
 
 // ── AI Summary ────────────────────────────────────────────────────────────────
@@ -244,10 +264,12 @@ function updateStatusBadge(live) {
 async function handleClaudeRequest(reportId) {
   const report = [...A.STORM_REPORTS, ...state.spcReports].find(r => r.id === reportId);
   if (!report || state.aiLoading) return;
+
   state.selectedReport = report;
   state.aiLoading = true;
 
   const aiBody = document.getElementById('ai-body');
+  if (!aiBody) return;
   aiBody.className = 'ai-body loading';
   aiBody.textContent = 'Analyzing storm data with Claude AI...';
   document.getElementById('ai-report-name').textContent = report.location;
@@ -267,12 +289,18 @@ async function handleClaudeRequest(reportId) {
 async function generateAreaSummary() {
   if (state.aiLoading) return;
   state.aiLoading = true;
+
   const aiBody = document.getElementById('ai-body');
+  if (!aiBody) return;
   aiBody.className = 'ai-body loading';
   aiBody.textContent = 'Generating area-wide damage briefing...';
   document.getElementById('ai-report-name').textContent = 'Jefferson County Area Briefing';
+
   try {
-    const response = await C.callClaude(C.buildAreaSummaryPrompt(state.alerts, A.STORM_REPORTS, state.metrics), CFG.CLAUDE_API_KEY);
+    const response = await C.callClaude(
+      C.buildAreaSummaryPrompt(state.alerts, A.STORM_REPORTS, state.metrics),
+      CFG.CLAUDE_API_KEY
+    );
     aiBody.className = 'ai-body';
     aiBody.innerHTML = formatAIResponse(response);
   } catch (err) {
@@ -292,16 +320,19 @@ function formatAIResponse(text) {
     .replace(/\n/g, '<br>');
 }
 
-// ── Chat context ──────────────────────────────────────────────────────────────
+// ── Chat context sync ─────────────────────────────────────────────────────────
 
 function syncChatContext() {
+  if (!CH) return;
   CH.updateChatContext({
-    alerts: state.alerts, stormReports: A.STORM_REPORTS,
-    spcReports: state.spcReports, metrics: state.metrics,
+    alerts: state.alerts,
+    stormReports: A ? A.STORM_REPORTS : [],
+    spcReports: state.spcReports,
+    metrics: state.metrics,
   });
 }
 
-// ── UI helpers ────────────────────────────────────────────────────────────────
+// ── Toast ─────────────────────────────────────────────────────────────────────
 
 function showToast(msg, type = '') {
   const container = document.getElementById('toast-container');
@@ -313,6 +344,8 @@ function showToast(msg, type = '') {
   setTimeout(() => toast.classList.add('toast-visible'), 50);
   setTimeout(() => { toast.classList.remove('toast-visible'); setTimeout(() => toast.remove(), 400); }, 4000);
 }
+
+// ── UI helpers ────────────────────────────────────────────────────────────────
 
 function selectAlert(id) {
   document.querySelectorAll('.alert-item').forEach(el => el.classList.remove('selected'));
@@ -334,24 +367,22 @@ function switchTab(name) {
 function setMapLayer(layerName, btn) {
   state.activeLayer = layerName;
   document.querySelectorAll('.toolbar-btn[data-layer]').forEach(b => b.classList.remove('active'));
-  btn.classList.add('active');
+  if (btn) btn.classList.add('active');
   M.setLayer(layerName);
   if (layerName === 'hail') M.drawHailSwath();
 }
 
 async function refreshAlerts() {
   const btn = document.getElementById('refresh-btn');
-  btn.textContent = 'Refreshing...';
-  btn.disabled = true;
+  if (btn) { btn.textContent = 'Refreshing...'; btn.disabled = true; }
   await loadAlerts();
-  btn.textContent = 'Refresh';
-  btn.disabled = false;
+  if (btn) { btn.textContent = 'Refresh'; btn.disabled = false; }
 }
 
 async function searchZone() {
-  const input = document.getElementById('zone-input').value.trim().toUpperCase();
+  const input = document.getElementById('zone-input');
   if (!input) return;
-  const zones = input.split(',').map(z => z.trim()).filter(Boolean);
+  const zones = input.value.trim().toUpperCase().split(',').map(z => z.trim()).filter(Boolean);
   CFG.WATCH_ZONES.push(...zones.filter(z => !CFG.WATCH_ZONES.includes(z)));
   await loadAlerts();
 }
@@ -361,15 +392,17 @@ function capitalize(s) { return s ? s.charAt(0).toUpperCase() + s.slice(1) : s; 
 // ── Boot ──────────────────────────────────────────────────────────────────────
 
 window.addEventListener('DOMContentLoaded', init);
-window.selectAlert       = selectAlert;
-window.selectReport      = selectReport;
+
+// Global exports for onclick handlers in HTML
+window.selectAlert         = selectAlert;
+window.selectReport        = selectReport;
 window.handleClaudeRequest = handleClaudeRequest;
 window.generateAreaSummary = generateAreaSummary;
-window.switchTab         = switchTab;
-window.setMapLayer       = setMapLayer;
-window.refreshAlerts     = refreshAlerts;
-window.searchZone        = searchZone;
-window.toggleRadar       = toggleRadar;
-window.setRadarSource    = setRadarSource;
-window.toggleAnimation   = toggleAnimation;
-window.toggleLightning   = toggleLightning;
+window.switchTab           = switchTab;
+window.setMapLayer         = setMapLayer;
+window.refreshAlerts       = refreshAlerts;
+window.searchZone          = searchZone;
+window.toggleRadar         = toggleRadar;
+window.setRadarSource      = setRadarSource;
+window.toggleAnimation     = toggleAnimation;
+window.toggleLightning     = toggleLightning;
